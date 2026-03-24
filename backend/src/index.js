@@ -130,6 +130,7 @@ const vaultArchivalJob = require('./jobs/vaultArchivalJob');
 // Import webhooks routes
 const webhooksRoutes = require('./routes/webhooks');
 const organizationRoutes = require('./routes/organization');
+const hsmRoutes = require('./routes/hsm');
 
 
 app.get('/', (req, res) => {
@@ -282,6 +283,9 @@ app.use('/webhooks', webhooksRoutes);
 
 // Mount organization routes
 app.use('/api/org', organizationRoutes);
+
+// Mount HSM routes (high security endpoints)
+app.use('/api/hsm', hsmRoutes);
 
 // ── Vesting Routes ────────────────────────────────────────────────────────────
 

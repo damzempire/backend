@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const Sentry = require('@sentry/node');
 const slackWebhookService = require('./slackWebhookService');
 const auditLogger = require('./auditLogger');
+const hsmGatewayService = require('./hsmGatewayService');
 
 class MultiSigRevocationService {
   constructor() {
@@ -466,30 +467,88 @@ class MultiSigRevocationService {
   }
 
   /**
-   * Build and execute revocation transaction
+   * Build and execute revocation transaction using HSM
    */
   async buildAndExecuteRevocationTransaction(proposal, signatures) {
     try {
-      // This would integrate with Stellar/Soroban SDK
-      // For now, we'll return a mock transaction hash
+      console.log(`🔐 Using HSM Gateway for secure signing of proposal ${proposal.id}`);
       
-      const mockTxHash = `0x${crypto.randomBytes(32).toString('hex')}`;
+      // Get HSM key IDs for signers from environment or config
+      const signingKeyIds = this.getHSMKeyIds(proposal);
       
-      console.log(`🔄 Executing revocation transaction for proposal ${proposal.id}`);
-      console.log(`   Vault: ${proposal.vault_address}`);
-      console.log(`   Beneficiary: ${proposal.beneficiary_address}`);
-      console.log(`   Amount: ${proposal.amount_to_revoke}`);
-      console.log(`   Signatures: ${signatures.length}`);
+      if (!signingKeyIds || Object.keys(signingKeyIds).length === 0) {
+        console.log('⚠️  No HSM keys configured, falling back to mock implementation');
+        return await this.mockTransactionExecution(proposal, signatures);
+      }
 
-      // Simulate transaction execution delay
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      return mockTxHash;
+      // Execute using HSM Gateway
+      const result = await hsmGatewayService.executeBatchRevokeWithHSM(proposal, signingKeyIds);
+      
+      console.log(`✅ HSM-signed transaction executed: ${result.transactionHash}`);
+      return result.transactionHash;
 
     } catch (error) {
-      console.error('❌ Error building revocation transaction:', error);
+      console.error('❌ Error in HSM transaction execution:', error);
+      
+      // Fallback to mock implementation for development/testing
+      if (process.env.NODE_ENV === 'development' || process.env.HSM_FALLBACK_ENABLED === 'true') {
+        console.log('⚠️  Falling back to mock implementation due to HSM error');
+        return await this.mockTransactionExecution(proposal, signatures);
+      }
+      
       throw error;
     }
+  }
+
+  /**
+   * Mock transaction execution (fallback for development/testing)
+   */
+  async mockTransactionExecution(proposal, signatures) {
+    const mockTxHash = `0x${crypto.randomBytes(32).toString('hex')}`;
+    
+    console.log(`🔄 Executing mock revocation transaction for proposal ${proposal.id}`);
+    console.log(`   Vault: ${proposal.vault_address}`);
+    console.log(`   Beneficiary: ${proposal.beneficiary_address}`);
+    console.log(`   Amount: ${proposal.amount_to_revoke}`);
+    console.log(`   Signatures: ${signatures.length}`);
+
+    // Simulate transaction execution delay
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    return mockTxHash;
+  }
+
+  /**
+   * Get HSM key IDs for proposal signers
+   */
+  getHSMKeyIds(proposal) {
+    // In production, this would come from secure configuration
+    // For now, we'll use environment variables or a config mapping
+    
+    const keyMapping = {};
+    
+    // Example: Map signer addresses to HSM key IDs
+    // This should be stored securely in production (e.g., encrypted database, secure config)
+    if (process.env.HSM_KEY_MAPPING) {
+      try {
+        const mapping = JSON.parse(process.env.HSM_KEY_MAPPING);
+        Object.assign(keyMapping, mapping);
+      } catch (error) {
+        console.error('Error parsing HSM key mapping:', error);
+      }
+    }
+    
+    // Example environment variable fallback
+    const signers = proposal.required_signers || [proposal.proposed_by];
+    signers.forEach(signer => {
+      const envKey = `HSM_KEY_${signer.replace('0x', '').toUpperCase()}`;
+      const keyId = process.env[envKey];
+      if (keyId) {
+        keyMapping[signer] = keyId;
+      }
+    });
+    
+    return keyMapping;
   }
 
   /**
