@@ -82,7 +82,7 @@ const claimRateLimiter = rateLimit({
 
 const { sequelize } = require('./database/connection');
 const models = require('./models');
-const { OrganizationWebhook, TaxJurisdiction, TaxCalculation } = models;
+const { OrganizationWebhook, TaxJurisdiction, TaxCalculation, KycStatus, KycNotification } = models;
 // Register webhook URL for organization
 // For now, let's create a simple isAdminOfOrg function inline
 const isAdminOfOrg = async (adminAddress, orgId) => {
@@ -134,6 +134,8 @@ const multiSigRevocationService = require('./services/multiSigRevocationService'
 const dividendService = require('./services/dividendService');
 const taxCalculationService = require('./services/taxCalculationService');
 const taxOracleService = require('./services/taxOracleService');
+const kycExpirationWorker = require('./services/kycExpirationWorker');
+const sep12KycService = require('./services/sep12KycService');
 const VaultService = require('./services/vaultService');
 const monthlyReportJob = require('./jobs/monthlyReportJob');
 const { VaultReconciliationJob } = require('./jobs/vaultReconciliationJob');
@@ -144,6 +146,15 @@ const integrityMonitoringJob = require('./jobs/integrityMonitoringJob');
 const webhooksRoutes = require('./routes/webhooks');
 const organizationRoutes = require('./routes/organization');
 const hsmRoutes = require('./routes/hsm');
+
+// Import KYC middleware
+const { 
+  kycSoftLockMiddleware, 
+  kycAdminMiddleware, 
+  kycStatusHeaderMiddleware, 
+  kycAuditMiddleware, 
+  kycPostClaimMiddleware 
+} = require('./middleware/kycSoftLock.middleware');
 
 
 app.get('/', (req, res) => {
@@ -504,7 +515,7 @@ app.post('/api/merkle-vault/build-tree', async (req, res) => {
   }
 });
 
-app.post('/api/claims', claimRateLimiter, async (req, res) => {
+app.post('/api/claims', claimRateLimiter, kycSoftLockMiddleware, kycAuditMiddleware, kycPostClaimMiddleware, kycStatusHeaderMiddleware, async (req, res) => {
   try {
     const claim = await indexingService.processClaim(req.body);
     
@@ -518,7 +529,7 @@ app.post('/api/claims', claimRateLimiter, async (req, res) => {
   }
 });
 
-app.post('/api/claims/batch', claimRateLimiter, async (req, res) => {
+app.post('/api/claims/batch', claimRateLimiter, kycSoftLockMiddleware, kycAuditMiddleware, kycPostClaimMiddleware, kycStatusHeaderMiddleware, async (req, res) => {
   try {
     const result = await indexingService.processBatchClaims(req.body.claims);
     
@@ -852,6 +863,275 @@ app.get('/api/tax/jurisdictions', async (req, res) => {
     res.json({ success: true, data: jurisdictions });
   } catch (error) {
     console.error('Error getting tax jurisdictions:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// KYC Status Management API Endpoints
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Get KYC status for user
+app.get('/api/kyc/status/:userAddress', async (req, res) => {
+  try {
+    const { userAddress } = req.params;
+    const kycStatus = await sep12KycService.getKycStatus(userAddress);
+    res.json({ success: true, data: kycStatus });
+  } catch (error) {
+    console.error('Error getting KYC status:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Submit KYC information
+app.post('/api/kyc/submit', async (req, res) => {
+  try {
+    const { userAddress, kycData } = req.body;
+
+    if (!userAddress || !kycData) {
+      return res.status(400).json({
+        success: false,
+        error: 'userAddress and kycData are required'
+      });
+    }
+
+    // Validate KYC data
+    const validation = sep12KycService.validateKycData(kycData);
+    if (!validation.isValid) {
+      return res.status(400).json({
+        success: false,
+        error: 'INVALID_KYC_DATA',
+        message: 'KYC data validation failed',
+        data: validation
+      });
+    }
+
+    const result = await sep12KycService.submitKycInformation(userAddress, kycData);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('Error submitting KYC information:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Update KYC information
+app.put('/api/kyc/update/:userAddress', async (req, res) => {
+  try {
+    const { userAddress } = req.params;
+    const { kycData } = req.body;
+
+    if (!kycData) {
+      return res.status(400).json({
+        success: false,
+        error: 'kycData is required'
+      });
+    }
+
+    const result = await sep12KycService.updateKycInformation(userAddress, kycData);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('Error updating KYC information:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get KYC notifications for user
+app.get('/api/kyc/notifications/:userAddress', async (req, res) => {
+  try {
+    const { userAddress } = req.params;
+    const { limit = 50, offset = 0, unreadOnly = false, type } = req.query;
+
+    const notifications = await KycNotification.findByUser(userAddress, {
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      unreadOnly: unreadOnly === 'true',
+      type
+    });
+
+    res.json({ success: true, data: notifications });
+  } catch (error) {
+    console.error('Error getting KYC notifications:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Mark notification as read
+app.put('/api/kyc/notifications/:notificationId/read', async (req, res) => {
+  try {
+    const { notificationId } = req.params;
+    
+    const notification = await KycNotification.findByPk(notificationId);
+    if (!notification) {
+      return res.status(404).json({
+        success: false,
+        error: 'Notification not found'
+      });
+    }
+
+    await notification.markAsRead();
+    res.json({ success: true, data: notification });
+  } catch (error) {
+    console.error('Error marking notification as read:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get KYC statistics
+app.get('/api/kyc/statistics', async (req, res) => {
+  try {
+    const { userAddress, timeRange = 30 } = req.query;
+    
+    const complianceStats = await KycStatus.getComplianceStatistics();
+    const notificationStats = await KycNotification.getNotificationStatistics(
+      userAddress, 
+      parseInt(timeRange)
+    );
+
+    res.json({ 
+      success: true, 
+      data: {
+        compliance: complianceStats,
+        notifications: notificationStats
+      }
+    });
+  } catch (error) {
+    console.error('Error getting KYC statistics:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get users with expiring KYC (admin only)
+app.get('/api/kyc/expiring-soon', async (req, res) => {
+  try {
+    const { days = 7 } = req.query;
+    
+    const expiringUsers = await KycStatus.findExpiringSoon(parseInt(days));
+    
+    res.json({ success: true, data: expiringUsers });
+  } catch (error) {
+    console.error('Error getting expiring KYC users:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get soft-locked users (admin only)
+app.get('/api/kyc/soft-locked', async (req, res) => {
+  try {
+    const softLockedUsers = await KycStatus.findSoftLocked();
+    
+    res.json({ success: true, data: softLockedUsers });
+  } catch (error) {
+    console.error('Error getting soft-locked users:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Apply soft-lock to user (admin only)
+app.post('/api/kyc/soft-lock/:userAddress', async (req, res) => {
+  try {
+    const { userAddress } = req.params;
+    const { reason } = req.body;
+
+    if (!reason) {
+      return res.status(400).json({
+        success: false,
+        error: 'reason is required for soft-lock'
+      });
+    }
+
+    const kycStatus = await KycStatus.findByUserAddress(userAddress);
+    if (!kycStatus) {
+      return res.status(404).json({
+        success: false,
+        error: 'KYC status not found for user'
+      });
+    }
+
+    await kycStatus.applySoftLock(reason);
+    
+    // Send notification to user
+    await KycNotification.createNotification({
+      userAddress,
+      kycStatusId: kycStatus.id,
+      notificationType: 'SOFT_LOCK',
+      urgencyLevel: 'CRITICAL',
+      title: 'Account Temporarily Locked',
+      message: `Your account has been temporarily locked: ${reason}`,
+      actionRequired: true,
+      actionType: 'REVERIFY_KYC',
+      actionUrl: `${process.env.FRONTEND_URL}/kyc/reverify`
+    });
+
+    res.json({ success: true, data: kycStatus.toJSON() });
+  } catch (error) {
+    console.error('Error applying soft-lock:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Remove soft-lock from user (admin only)
+app.post('/api/kyc/remove-soft-lock/:userAddress', async (req, res) => {
+  try {
+    const { userAddress } = req.params;
+    const { reason } = req.body;
+
+    const kycStatus = await KycStatus.findByUserAddress(userAddress);
+    if (!kycStatus) {
+      return res.status(404).json({
+        success: false,
+        error: 'KYC status not found for user'
+      });
+    }
+
+    await kycStatus.removeSoftLock(reason || 'Soft-lock removed by admin');
+    
+    // Send notification to user
+    await KycNotification.createNotification({
+      userAddress,
+      kycStatusId: kycStatus.id,
+      notificationType: 'VERIFICATION_COMPLETE',
+      urgencyLevel: 'LOW',
+      title: 'Account Unlocked',
+      message: 'Your account has been unlocked and is fully active.',
+      actionRequired: false
+    });
+
+    res.json({ success: true, data: kycStatus.toJSON() });
+  } catch (error) {
+    console.error('Error removing soft-lock:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Sync KYC status for all users (admin only)
+app.post('/api/kyc/sync-all', async (req, res) => {
+  try {
+    const result = await sep12KycService.syncAllKycStatus();
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('Error syncing KYC status:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get SEP-12 service health
+app.get('/api/kyc/sep12/health', async (req, res) => {
+  try {
+    const health = await sep12KycService.getHealthStatus();
+    res.json({ success: true, data: health });
+  } catch (error) {
+    console.error('Error getting SEP-12 health:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get KYC worker status
+app.get('/api/kyc/worker/status', async (req, res) => {
+  try {
+    const status = kycExpirationWorker.getStatus();
+    res.json({ success: true, data: status });
+  } catch (error) {
+    console.error('Error getting KYC worker status:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1905,8 +2185,16 @@ app.get('/api/token/:address/distribution', async (req, res) => {
       }
     };
 
+    // Start KYC expiration worker
+    console.log('🔍 Starting KYC expiration monitoring worker...');
+    kycExpirationWorker.start();
+
     startServer();
 if (require.main === module) {
+  // Start KYC expiration worker
+  console.log('🔍 Starting KYC expiration monitoring worker...');
+  kycExpirationWorker.start();
+
   startServer();
 }
 
