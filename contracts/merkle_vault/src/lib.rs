@@ -5,6 +5,7 @@
 
 use soroban_sdk::{
     contract, contractimpl, contracttype, Address, Bytes, BytesN, Env, Vec,
+    token::TokenInterface,
 };
 
 #[contracttype]
@@ -18,21 +19,52 @@ pub enum DataKey {
     Duration,
     Cliff,
     ClaimedAmount(u32),
+    // NFT related storage
+    NFTOwner(u32),
+    NFTMetadata(u32),
+    Name,
+    Symbol,
+    TotalSupply,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub enum NFTEvent {
+    Mint(Address, u32),
+    Transfer(Address, Address, u32),
 }
 
 #[contract]
 pub struct MerkleVault;
 
+pub trait NFTInterface {
+    fn mint(env: Env, to: Address, token_id: u32);
+    fn owner_of(env: Env, token_id: u32) -> Address;
+    fn transfer(env: Env, from: Address, to: Address, token_id: u32);
+    fn approve(env: Env, approved: Address, token_id: u32);
+    fn get_approved(env: Env, token_id: u32) -> Option<Address>;
+    fn balance_of(env: Env, owner: Address) -> u32;
+    fn token_uri(env: Env, token_id: u32) -> Bytes;
+    fn name(env: Env) -> Bytes;
+    fn symbol(env: Env) -> Bytes;
+    fn total_supply(env: Env) -> u32;
+}
+
 #[contractimpl]
 impl MerkleVault {
     /// One-time init: set admin and token. Call before initialize_merkle_vault.
-    pub fn init(env: Env, admin: Address, token: Address) {
+    pub fn init(env: Env, admin: Address, token: Address, name: Bytes, symbol: Bytes) {
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("already_initialized");
         }
         admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Token, &token);
+        
+        // Initialize NFT metadata
+        env.storage().instance().set(&DataKey::Name, &name);
+        env.storage().instance().set(&DataKey::Symbol, &symbol);
+        env.storage().instance().set(&DataKey::TotalSupply, &0u32);
     }
 
     /// Initialize the Merkle vesting vault with a single root.
@@ -74,11 +106,18 @@ impl MerkleVault {
     }
 
     /// Claim vested tokens by providing a Merkle proof. Proof is verified
-    /// against the stored root before any vesting calculation.
+    /// against the stored root before any vesting calculation. Only the current
+    /// NFT owner can claim.
     pub fn claim_merkle(env: Env, proof: Vec<BytesN<32>>, index: u32, amount: i128) {
         let claimant = env.invoker();
         if amount <= 0 {
             panic!("amount_must_be_positive");
+        }
+
+        // Check if claimant owns the NFT for this vesting position
+        let nft_owner: Address = Self::owner_of(env.clone(), index);
+        if nft_owner != claimant {
+            panic!("not_nft_owner");
         }
 
         let inst = env.storage().instance();
@@ -130,6 +169,145 @@ impl MerkleVault {
         env.storage()
             .instance()
             .get(&DataKey::ClaimedAmount(index))
+            .unwrap_or(0)
+    }
+
+    /// Mint NFT for a valid vesting position (called after successful Merkle proof verification)
+    pub fn mint_vesting_nft(env: Env, to: Address, index: u32, amount: i128, proof: Vec<BytesN<32>>) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("admin_not_set");
+        
+        // Verify this is a valid vesting position by checking Merkle proof
+        let root: BytesN<32> = env
+            .storage()
+            .instance()
+            .get(&DataKey::MerkleRoot)
+            .expect("merkle_vault_not_initialized");
+        
+        let leaf = build_leaf(&env, index, &to, amount);
+        
+        if !verify_merkle_proof(&env, &root, &leaf, &proof, index) {
+            panic!("invalid_merkle_proof");
+        }
+
+        // Check if NFT already exists
+        if env.storage().instance().has(&DataKey::NFTOwner(index)) {
+            panic!("nft_already_exists");
+        }
+
+        Self::mint(env, to, index);
+    }
+}
+
+#[contractimpl]
+impl NFTInterface for MerkleVault {
+    fn mint(env: Env, to: Address, token_id: u32) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("admin_not_set");
+        
+        admin.require_auth();
+        
+        if env.storage().instance().has(&DataKey::NFTOwner(token_id)) {
+            panic!("token_already_minted");
+        }
+
+        env.storage().instance().set(&DataKey::NFTOwner(token_id), &to);
+        
+        let mut total_supply: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TotalSupply)
+            .unwrap_or(0);
+        total_supply += 1;
+        env.storage().instance().set(&DataKey::TotalSupply, &total_supply);
+
+        env.events().publish((NFTEvent::Mint, to.clone(), token_id), ());
+    }
+
+    fn owner_of(env: Env, token_id: u32) -> Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::NFTOwner(token_id))
+            .expect("token_does_not_exist")
+    }
+
+    fn transfer(env: Env, from: Address, to: Address, token_id: u32) {
+        from.require_auth();
+        
+        let current_owner = Self::owner_of(env.clone(), token_id);
+        if current_owner != from {
+            panic!("not_owner");
+        }
+
+        env.storage().instance().set(&DataKey::NFTOwner(token_id), &to);
+        env.events().publish((NFTEvent::Transfer, from, to, token_id), ());
+    }
+
+    fn approve(env: Env, approved: Address, token_id: u32) {
+        let owner = Self::owner_of(env.clone(), token_id);
+        owner.require_auth();
+        
+        env.storage().instance().set(&DataKey::NFTMetadata(token_id), &approved);
+    }
+
+    fn get_approved(env: Env, token_id: u32) -> Option<Address> {
+        env.storage()
+            .instance()
+            .get(&DataKey::NFTMetadata(token_id))
+    }
+
+    fn balance_of(env: Env, owner: Address) -> u32 {
+        // This is a simplified implementation - in production, you'd want
+        // to maintain a balance mapping for efficiency
+        let total_supply: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TotalSupply)
+            .unwrap_or(0);
+        
+        let mut balance = 0;
+        for token_id in 0..total_supply {
+            if let Some(token_owner) = env.storage().instance().get(&DataKey::NFTOwner(token_id)) {
+                if token_owner == owner {
+                    balance += 1;
+                }
+            }
+        }
+        balance
+    }
+
+    fn token_uri(env: Env, token_id: u32) -> Bytes {
+        // Return metadata URI for the vesting position
+        let token_id_str = token_id.to_string();
+        let mut uri = "https://api.example.com/metadata/".to_string();
+        uri.push_str(&token_id_str);
+        Bytes::from_slice(&env, uri.as_bytes())
+    }
+
+    fn name(env: Env) -> Bytes {
+        env.storage()
+            .instance()
+            .get(&DataKey::Name)
+            .unwrap_or_else(|| Bytes::from_slice(&env, b"Vesting Vault NFT"))
+    }
+
+    fn symbol(env: Env) -> Bytes {
+        env.storage()
+            .instance()
+            .get(&DataKey::Symbol)
+            .unwrap_or_else(|| Bytes::from_slice(&env, b"VVNFT"))
+    }
+
+    fn total_supply(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::TotalSupply)
             .unwrap_or(0)
     }
 }

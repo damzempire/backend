@@ -39,15 +39,20 @@ class ClaimCalculator {
   }
 
   /**
-   * Calculate claimable amount using static logic (original calculation)
+   * Calculate claimable amount using static logic (updated to prevent dust loss)
+   * Formula: Total_Vested = (Elapsed_Time * Total_Allocation) / Total_Duration
+   * Current_Payout = Total_Vested - Cumulative_Claimed
    * @param {Object} subSchedule - SubSchedule model instance
    * @param {Date} currentTime - Current timestamp for vesting calculation
    * @returns {string} The claimable amount as a string
    */
   calculateStatic(subSchedule, currentTime) {
-    // Use existing vesting calculation logic
-    const vestedAmount = this._calculateVestedAmount(subSchedule, currentTime);
-    const claimable = vestedAmount - parseFloat(subSchedule.amount_withdrawn);
+    // Calculate total vested amount using time-based formula
+    const totalVested = this._calculateVestedAmount(subSchedule, currentTime);
+    
+    // Use cumulative claimed amount instead of amount_withdrawn to prevent dust loss
+    const cumulativeClaimed = parseFloat(subSchedule.cumulative_claimed_amount || 0);
+    const claimable = totalVested - cumulativeClaimed;
     
     return String(Math.max(0, claimable));
   }
@@ -90,8 +95,8 @@ class ClaimCalculator {
       totalVested
     );
 
-    // Subtract what user already withdrew
-    const amountWithdrawn = parseFloat(subSchedule.amount_withdrawn);
+    // Subtract what user already withdrew using cumulative tracking
+    const amountWithdrawn = parseFloat(subSchedule.cumulative_claimed_amount || 0);
     const claimable = proportionalShare - amountWithdrawn;
 
     // Ensure result is non-negative
@@ -113,6 +118,7 @@ class ClaimCalculator {
 
   /**
    * Calculate vested amount for a single subschedule
+   * Uses the formula: Total_Vested = (Elapsed_Time * Total_Allocation) / Total_Duration
    * @private
    * @param {Object} subSchedule - SubSchedule model instance
    * @param {Date} currentTime - Current timestamp
@@ -139,10 +145,13 @@ class ClaimCalculator {
       return parseFloat(subSchedule.top_up_amount);
     }
 
-    // Calculate proportional vested amount
-    const vestedTime = asOfDate - subSchedule.vesting_start_date;
-    const vestedRatio = vestedTime / (subSchedule.vesting_duration * 1000);
-    const totalVested = parseFloat(subSchedule.top_up_amount) * vestedRatio;
+    // Calculate vested amount using the new formula: Total_Vested = (Elapsed_Time * Total_Allocation) / Total_Duration
+    const elapsedTimeInSeconds = Math.floor((asOfDate - subSchedule.vesting_start_date) / 1000);
+    const totalAllocation = parseFloat(subSchedule.top_up_amount);
+    const totalDurationInSeconds = subSchedule.vesting_duration;
+    
+    // Use precise calculation to minimize dust loss
+    const totalVested = (elapsedTimeInSeconds * totalAllocation) / totalDurationInSeconds;
 
     return totalVested;
   }

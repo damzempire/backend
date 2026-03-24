@@ -77,6 +77,25 @@ class EmailService {
     return await this.sendEmail(to, subject, text, html);
   }
 
+  /**
+   * Send integrity failure notification
+   * @param {string} to - Recipient email
+   * @param {string} vaultAddress - Vault contract address
+   * @returns {Promise<boolean>} Success status
+   */
+  async sendIntegrityFailureEmail(to, vaultAddress) {
+    const subject = "CRITICAL: Vault Integrity Failure Detected";
+    const text = `CRITICAL: A security integrity failure has been detected for vault ${vaultAddress}. The vault has been blacklisted for your protection. Please contact support immediately.`;
+    const html = `
+      <h1>Security Alert</h1>
+      <p>CRITICAL: A security integrity failure has been detected for vault <strong>${vaultAddress}</strong>.</p>
+      <p>The contract code has been modified without authorization. For your protection, the vault has been <strong>instantly blacklisted</strong> and disabled from the dashboard.</p>
+      <p>Please contact our support team immediately for further instructions.</p>
+    `;
+
+    return await this.sendEmail(to, subject, text, html);
+  }
+
   async sendLiquidityRiskAlertEmail(to, payload) {
     const {
       vaultName,

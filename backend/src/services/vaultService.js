@@ -34,6 +34,10 @@ class VaultService {
       throw new Error(`Vault not found: ${vaultId}`);
     }
 
+    if (vault.is_blacklisted) {
+      throw new Error(`Vault ${vaultId} is blacklisted due to integrity failure.`);
+    }
+
     const trackedBalance = vault.total_amount;
     let actualBalance = trackedBalance;
     let distributionRatios = null;

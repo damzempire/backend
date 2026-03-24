@@ -97,6 +97,17 @@ const Vault = sequelize.define('Vault', {
     allowNull: true,
     comment: 'Authorized delegate for this vault',
   },
+  is_active: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: true,
+    allowNull: false,
+  },
+  is_blacklisted: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: false,
+    comment: 'Whether this vault has been blacklisted due to integrity failure',
+  },
   created_at: {
 
     type: DataTypes.DATE,
@@ -170,6 +181,10 @@ Vault.associate = function (models) {
   Vault.hasMany(models.SubSchedule, {
     foreignKey: 'vault_id',
     as: 'subSchedules'
+  });
+  Vault.hasMany(models.VaultLegalDocument, {
+    foreignKey: 'vault_id',
+    as: 'legalDocuments'
   });
 };
 

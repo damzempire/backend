@@ -118,6 +118,31 @@ class FirebaseService {
   }
 
   /**
+   * Send integrity failure notification to multiple devices
+   * @param {string[]} tokens - Array of device tokens
+   * @param {string} vaultAddress - Vault contract address
+   * @returns {Promise<Object>} - Summary of successful and failed notifications
+   */
+  async sendIntegrityFailureNotification(tokens, vaultAddress) {
+    if (!this.initialized || !tokens || tokens.length === 0) {
+      return { successCount: 0, failureCount: 0 };
+    }
+
+    const notification = {
+      title: 'CRITICAL: Security Alert',
+      body: `Integrity failure detected for vault ${vaultAddress}. The vault has been blacklisted for your protection.`,
+    };
+
+    const data = {
+      type: 'VAULT_INTEGRITY_FAILED',
+      vaultAddress,
+      priority: 'CRITICAL',
+    };
+
+    return await this.sendToMultipleDevices(tokens, notification, data);
+  }
+
+  /**
    * Send push notification to multiple devices
    * @param {string[]} deviceTokens - Array of FCM device tokens
    * @param {Object} notification - Notification payload

@@ -48,7 +48,10 @@ const vaultResolver = {
         }
         const offset = after ? parseInt(after, 10) : 0;
         const vaults = await models.Vault.findAll({
-          where: { org_id: orgId },
+          where: { 
+            org_id: orgId,
+            is_blacklisted: false 
+          },
           include: [
             {
               model: models.Beneficiary,

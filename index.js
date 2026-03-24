@@ -76,8 +76,7 @@ app.get('/', (req, res) => {
   res.json({ 
     project: 'Vesting Vault', 
     status: 'Tracking Locked Tokens', 
-    contract: process.env.VAULT_CONTRACT_ADDRESS 
-    contract: 'CD5QF6KBAURVUNZR2EVBJISWSEYGDGEEYVH2XYJJADKT7KFOXTTIXLHU',
+    contract: process.env.VAULT_CONTRACT_ADDRESS,
     database: dbStatus
   });
 });

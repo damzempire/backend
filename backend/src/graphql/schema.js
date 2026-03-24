@@ -11,6 +11,7 @@ const typeDefs = gql`
     owner_address: String!
     total_amount: String!
     is_active: Boolean
+    is_blacklisted: Boolean
     created_at: Date
     updated_at: Date
     org_id: String
@@ -87,6 +88,37 @@ const typeDefs = gql`
     periodEnd: Date
   }
 
+  type OffRampQuote {
+    anchorDomain: String!
+    assetCode: String!
+    inputAmount: String!
+    fiatCurrency: String!
+    exchangeRate: String!
+    grossAmount: String!
+    fees: QuoteFees!
+    netPayout: String!
+    estimatedTime: String
+    minAmount: String
+    maxAmount: String
+    timestamp: String!
+  }
+
+  type QuoteFees {
+    swapFee: String!
+    swapFeePercent: Float!
+    withdrawalFee: String!
+    withdrawalFeeType: String!
+    totalFees: String!
+  }
+
+  type LiquidityEstimate {
+    tokenSymbol: String!
+    claimableAmount: String!
+    quotes: [OffRampQuote!]!
+    bestQuote: OffRampQuote
+    totalCostOfLiquidity: String!
+  }
+
   input WithdrawInput {
     vaultAddress: String!
     beneficiaryAddress: String!
@@ -128,6 +160,9 @@ const typeDefs = gql`
     claims(userAddress: String, tokenAddress: String, first: Int, after: String): [ClaimsHistory]
     claim(transactionHash: String!): ClaimsHistory
     realizedGains(userAddress: String!, startDate: Date, endDate: Date): RealizedGains
+    offRampQuote(tokenSymbol: String!, tokenAmount: String!, fiatCurrency: String, anchorDomain: String): OffRampQuote
+    offRampQuotes(tokenSymbol: String!, tokenAmount: String!, fiatCurrency: String): [OffRampQuote!]!
+    liquidityEstimate(vaultAddress: String!, beneficiaryAddress: String!, fiatCurrency: String): LiquidityEstimate
   }
 
   type Mutation {

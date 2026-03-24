@@ -61,6 +61,12 @@ const SubSchedule = sequelize.define('SubSchedule', {
     defaultValue: 0,
     comment: 'Amount withdrawn from this sub-schedule',
   },
+  cumulative_claimed_amount: {
+    type: DataTypes.DECIMAL(36, 18),
+    allowNull: false,
+    defaultValue: 0,
+    comment: 'Cumulative amount claimed to prevent dust loss from integer division truncation',
+  },
   amount_released: {
     type: DataTypes.DECIMAL(36, 18),
     allowNull: false,
