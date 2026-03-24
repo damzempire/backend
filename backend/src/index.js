@@ -127,12 +127,14 @@ const VaultService = require('./services/vaultService');
 const monthlyReportJob = require('./jobs/monthlyReportJob');
 const { VaultReconciliationJob } = require('./jobs/vaultReconciliationJob');
 const vaultArchivalJob = require('./jobs/vaultArchivalJob');
+const historicalPriceTrackingJob = require('./jobs/historicalPriceTrackingJob');
 const integrityMonitoringJob = require('./jobs/integrityMonitoringJob');
 
 // Import webhooks routes
 const webhooksRoutes = require('./routes/webhooks');
 const organizationRoutes = require('./routes/organization');
 const hsmRoutes = require('./routes/hsm');
+const historicalPriceRoutes = require('./routes/historicalPriceRoutes');
 
 
 app.get('/', (req, res) => {
@@ -288,6 +290,46 @@ app.use('/api/org', organizationRoutes);
 
 // Mount HSM routes (high security endpoints)
 app.use('/api/hsm', hsmRoutes);
+
+// Mount historical price tracking routes
+app.use('/api/historical-prices', historicalPriceRoutes);
+
+// Historical price tracking job management endpoints
+app.post('/api/admin/jobs/historical-prices/start', async (req, res) => {
+  try {
+    historicalPriceTrackingJob.start();
+    res.json({ success: true, message: 'Historical price tracking job started' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/admin/jobs/historical-prices/stop', async (req, res) => {
+  try {
+    historicalPriceTrackingJob.stop();
+    res.json({ success: true, message: 'Historical price tracking job stopped' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/admin/jobs/historical-prices/run', async (req, res) => {
+  try {
+    await historicalPriceTrackingJob.run();
+    res.json({ success: true, message: 'Historical price tracking job completed' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/admin/jobs/historical-prices/stats', async (req, res) => {
+  try {
+    const stats = historicalPriceTrackingJob.getStats();
+    res.json({ success: true, data: stats });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 // ── Vesting Routes ────────────────────────────────────────────────────────────
 
