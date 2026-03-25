@@ -1,0 +1,21 @@
+[package]
+name = "merkle_vault"
+version = "0.1.0"
+description = "Merkle tree-based vesting airdrops - single root, claim with proof"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+soroban-sdk = "22.0"
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+
+[profile.release-with-logging]
+inherits = "release"
+strip = "none"

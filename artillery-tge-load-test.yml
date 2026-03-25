@@ -1,0 +1,58 @@
+config:
+  target: '{{ $processEnvironment.API_BASE_URL || "http://localhost:3000" }}'
+  phases:
+    - duration: 60
+      arrivalRate: 100
+      name: "Warm up"
+    - duration: 300
+      arrivalRate: 500
+      name: "Ramp up to TGE load"
+    - duration: 600
+      arrivalRate: 500
+      name: "Sustained TGE load"
+    - duration: 60
+      arrivalRate: 100
+      name: "Cool down"
+
+scenarios:
+  - name: "TGE Dashboard Refresh Load Test"
+    weight: 70
+    flow:
+      - get:
+          url: "/api/vaults"
+          headers:
+            Content-Type: "application/json"
+          capture:
+            - json: "$.data[*].id"
+              as: "vaultIds"
+      - think: 1
+      - loop:
+          - get:
+              url: "/api/vaults/{{ vaultIds[$randomInt(0, {{ vaultIds.length - 1 }})] }}"
+              headers:
+                Content-Type: "application/json"
+        count: 5
+      - think: 2
+
+  - name: "TGE Portfolio Load Test"
+    weight: 20
+    flow:
+      - get:
+          url: "/api/portfolio/{{ $randomString() }}"
+          headers:
+            Content-Type: "application/json"
+      - think: 1
+      - get:
+          url: "/api/portfolio/{{ $randomString() }}/history"
+          headers:
+            Content-Type: "application/json"
+      - think: 1
+
+  - name: "TGE Health Check"
+    weight: 10
+    flow:
+      - get:
+          url: "/health"
+          headers:
+            Content-Type: "application/json"
+      - think: 0.5

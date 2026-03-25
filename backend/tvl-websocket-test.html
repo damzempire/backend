@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TVL WebSocket Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .tvl-display {
+            background: #f0f0f0;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .connected { background: #d4edda; color: #155724; }
+        .disconnected { background: #f8d7da; color: #721c24; }
+        .log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 10px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <h1>TVL WebSocket Real-Time Test</h1>
+    
+    <div id="status" class="status disconnected">Disconnected</div>
+    
+    <div class="tvl-display">
+        <h2>Current TVL</h2>
+        <div id="tvl-data">
+            <p><strong>Total Value Locked:</strong> <span id="tvl-amount">Loading...</span></p>
+            <p><strong>Active Vaults:</strong> <span id="vault-count">Loading...</span></p>
+            <p><strong>Formatted TVL:</strong> <span id="formatted-tvl">Loading...</span></p>
+            <p><strong>Last Updated:</strong> <span id="last-updated">Loading...</span></p>
+        </div>
+    </div>
+    
+    <button onclick="connect()">Connect</button>
+    <button onclick="disconnect()">Disconnect</button>
+    <button onclick="fetchCurrentTVL()">Fetch Current TVL</button>
+    
+    <h3>Connection Log</h3>
+    <div id="log" class="log"></div>
+
+    <script>
+        let ws = null;
+        let subscriptionId = 'tvl-subscription';
+
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function updateStatus(connected) {
+            const statusDiv = document.getElementById('status');
+            if (connected) {
+                statusDiv.textContent = 'Connected to WebSocket';
+                statusDiv.className = 'status connected';
+            } else {
+                statusDiv.textContent = 'Disconnected from WebSocket';
+                statusDiv.className = 'status disconnected';
+            }
+        }
+
+        function updateTVLDisplay(tvlData) {
+            document.getElementById('tvl-amount').textContent = tvlData.totalValueLocked;
+            document.getElementById('vault-count').textContent = tvlData.activeVaultsCount;
+            document.getElementById('formatted-tvl').textContent = tvlData.formattedTvl;
+            document.getElementById('last-updated').textContent = new Date(tvlData.lastUpdatedAt).toLocaleString();
+        }
+
+        function connect() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                log('Already connected');
+                return;
+            }
+
+            log('Connecting to WebSocket...');
+            ws = new WebSocket('ws://localhost:4000/graphql', 'graphql-ws');
+
+            ws.onopen = () => {
+                log('WebSocket connected');
+                updateStatus(true);
+                
+                // Send connection init
+                ws.send(JSON.stringify({
+                    type: 'connection_init',
+                    payload: {}
+                }));
+            };
+
+            ws.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                log(`Received: ${JSON.stringify(message)}`);
+
+                if (message.type === 'connection_ack') {
+                    log('Connection acknowledged, starting TVL subscription...');
+                    
+                    // Start TVL subscription
+                    ws.send(JSON.stringify({
+                        id: subscriptionId,
+                        type: 'start',
+                        payload: {
+                            query: `
+                                subscription {
+                                    tvlUpdated {
+                                        totalValueLocked
+                                        activeVaultsCount
+                                        formattedTvl
+                                        lastUpdatedAt
+                                    }
+                                }
+                            `
+                        }
+                    }));
+                }
+
+                if (message.type === 'data' && message.id === subscriptionId) {
+                    log('TVL Update received!');
+                    updateTVLDisplay(message.payload.data.tvlUpdated);
+                }
+
+                if (message.type === 'error') {
+                    log(`Error: ${JSON.stringify(message.payload)}`);
+                }
+            };
+
+            ws.onclose = () => {
+                log('WebSocket connection closed');
+                updateStatus(false);
+            };
+
+            ws.onerror = (error) => {
+                log(`WebSocket error: ${error}`);
+                updateStatus(false);
+            };
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+                log('Disconnected');
+                updateStatus(false);
+            }
+        }
+
+        async function fetchCurrentTVL() {
+            try {
+                log('Fetching current TVL via REST API...');
+                const response = await fetch('http://localhost:4000/api/stats/tvl');
+                const data = await response.json();
+                
+                if (data.success) {
+                    log('Current TVL fetched successfully');
+                    updateTVLDisplay({
+                        totalValueLocked: data.data.total_value_locked,
+                        activeVaultsCount: data.data.active_vaults_count,
+                        formattedTvl: data.data.formatted_tvl,
+                        lastUpdatedAt: data.data.last_updated_at
+                    });
+                } else {
+                    log(`Error fetching TVL: ${data.error}`);
+                }
+            } catch (error) {
+                log(`Error fetching TVL: ${error.message}`);
+            }
+        }
+
+        // Auto-connect on page load
+        window.onload = () => {
+            log('Page loaded');
+            fetchCurrentTVL();
+        };
+    </script>
+</body>
+</html>

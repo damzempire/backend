@@ -1,0 +1,159 @@
+config:
+  target: '{{ $processEnvironment.API_BASE_URL || "http://localhost:3000" }}'
+  phases:
+    # Warm up phase - gradual increase
+    - duration: 120
+      arrivalRate: 50
+      name: "Warm up"
+    
+    # Ramp up to simulate TGE announcement
+    - duration: 180
+      arrivalRate: 200
+      name: "TGE announcement ramp up"
+    
+    # Peak TGE load - 1000 concurrent users refreshing
+    - duration: 600
+      arrivalRate: 500
+      name: "Peak TGE load"
+    
+    # Sustained high load
+    - duration: 300
+      arrivalRate: 300
+      name: "Sustained post-TGE load"
+    
+    # Cool down
+    - duration: 60
+      arrivalRate: 50
+      name: "Cool down"
+
+  processor: "./test-processor.js"
+
+scenarios:
+  - name: "Authenticated User Dashboard Refresh"
+    weight: 60
+    flow:
+      - function: "generateRandomUser"
+      - post:
+          url: "/api/auth/login"
+          headers:
+            Content-Type: "application/json"
+          json:
+            address: "{{ address }}"
+            signature: "{{ signature }}"
+          capture:
+            - json: "$.data.token"
+              as: "authToken"
+      - get:
+          url: "/api/vaults"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+            Content-Type: "application/json"
+          capture:
+            - json: "$.data[*].id"
+              as: "vaultIds"
+            - json: "$.data.length"
+              as: "vaultCount"
+      - think: "{{ $randomInt(1, 3) }}"
+      - loop:
+          - get:
+              url: "/api/vaults/{{ vaultIds[$randomInt(0, {{ vaultCount - 1 }})] }}"
+              headers:
+                Authorization: "Bearer {{ authToken }}"
+                Content-Type: "application/json"
+          - get:
+              url: "/api/vaults/{{ vaultIds[$randomInt(0, {{ vaultCount - 1 }})] }}/beneficiaries"
+              headers:
+                Authorization: "Bearer {{ authToken }}"
+                Content-Type: "application/json"
+          - think: "{{ $randomInt(0, 2) }}"
+        count: "{{ $randomInt(2, 5) }}"
+
+  - name: "Portfolio and Claims History"
+    weight: 25
+    flow:
+      - function: "generateRandomUser"
+      - post:
+          url: "/api/auth/login"
+          headers:
+            Content-Type: "application/json"
+          json:
+            address: "{{ address }}"
+            signature: "{{ signature }}"
+          capture:
+            - json: "$.data.token"
+              as: "authToken"
+      - get:
+          url: "/api/portfolio/{{ address }}"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+            Content-Type: "application/json"
+      - think: "{{ $randomInt(1, 2) }}"
+      - get:
+          url: "/api/portfolio/{{ address }}/claims"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+            Content-Type: "application/json"
+          qs:
+            limit: 50
+            offset: 0
+      - think: "{{ $randomInt(1, 3) }}"
+
+  - name: "Public Data and Export Requests"
+    weight: 10
+    flow:
+      - get:
+          url: "/health"
+          headers:
+            Content-Type: "application/json"
+      - think: 0.5
+      - get:
+          url: "/api/vaults"
+          headers:
+            Content-Type: "application/json"
+          qs:
+            limit: 100
+            offset: 0
+      - think: 1
+      - loop:
+          - get:
+              url: "/api/org/{{ $randomString() }}/export/summary"
+              headers:
+                Content-Type: "application/json"
+              qs:
+                startDate: "2024-01-01"
+                endDate: "2024-12-31"
+          - think: "{{ $randomInt(2, 5) }}"
+        count: "{{ $randomInt(1, 3) }}"
+
+  - name: "Stress Test - Heavy API Calls"
+    weight: 5
+    flow:
+      - function: "generateRandomUser"
+      - post:
+          url: "/api/auth/login"
+          headers:
+            Content-Type: "application/json"
+          json:
+            address: "{{ address }}"
+            signature: "{{ signature }}"
+          capture:
+            - json: "$.data.token"
+              as: "authToken"
+      - loop:
+          - get:
+              url: "/api/vaults"
+              headers:
+                Authorization: "Bearer {{ authToken }}"
+                Content-Type: "application/json"
+          - get:
+              url: "/api/portfolio/{{ address }}"
+              headers:
+                Authorization: "Bearer {{ authToken }}"
+                Content-Type: "application/json"
+          - get:
+              url: "/api/portfolio/{{ address }}/claims"
+              headers:
+                Authorization: "Bearer {{ authToken }}"
+                Content-Type: "application/json"
+          - think: 0.1
+        count: 20

@@ -5,21 +5,15 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
+
   },
   "dependencies": {
+    "@apollo/server": "^5.4.0",
+    "@nestjs/platform-socket.io": "^11.1.14",
+    "@nestjs/websockets": "^11.1.14",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
-    "sqlite3": "^5.1.6",
-    "crypto": "^1.0.1",
-    "stellar-sdk": "^12.2.0",
-    "node-cron": "^3.0.3"
-  },
-  "devDependencies": {
-    "jest": "^29.7.0",
-    "supertest": "^6.3.3"
+
   }
 }
