@@ -52,6 +52,12 @@ const {
   vaultStatusMiddleware,
 } = require("./middleware/vaultPause.middleware");
 
+// Import and apply Rule 144 compliance middleware
+const { 
+  rule144ComplianceMiddleware, 
+  recordClaimComplianceMiddleware 
+} = require('./middleware/rule144Compliance.middleware');
+
 // Apply vault status middleware to all API routes
 app.use("/api", vaultStatusMiddleware);
 
@@ -599,6 +605,10 @@ app.post("/api/merkle-vault/build-tree", async (req, res) => {
 app.post("/api/claims", claimRateLimiter, async (req, res) => {
   try {
     const claim = await indexingService.processClaim(req.body);
+    
+    // Apply recording middleware after successful claim
+    await recordClaimComplianceMiddleware(req, res, () => {});
+    
     res.status(201).json({ success: true, data: claim });
   } catch (error) {
     console.error("Error processing claim:", error);
@@ -609,6 +619,13 @@ app.post("/api/claims", claimRateLimiter, async (req, res) => {
 app.post("/api/claims/batch", claimRateLimiter, async (req, res) => {
   try {
     const result = await indexingService.processBatchClaims(req.body.claims);
+    
+    // Apply recording middleware for each claim in batch
+    for (const claim of req.body.claims) {
+      const mockReq = { body: claim, path: '/api/claims/batch' };
+      await recordClaimComplianceMiddleware(mockReq, res, () => {});
+    }
+    
     res.json({ success: true, data: result });
   } catch (error) {
     console.error("Error processing batch claims:", error);

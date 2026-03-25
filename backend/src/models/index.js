@@ -44,6 +44,7 @@ const models = {
   DeviceToken,
   VaultLegalDocument,
   VaultLiquidityAlert,
+  Rule144Compliance,
   RevocationProposal,
   RevocationSignature,
   MultiSigConfig,
