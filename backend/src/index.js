@@ -1628,6 +1628,232 @@ app.get(
   },
 );
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Annual Vesting Statement API Endpoints
+// ─────────────────────────────────────────────────────────────────────────────
+
+const annualVestingStatementService = require('./services/annualVestingStatementService');
+const annualStatementPDFService = require('./services/annualStatementPDFService');
+
+// POST /api/statements/annual/generate - Generate annual statement
+app.post("/api/statements/annual/generate", async (req, res) => {
+  try {
+    const { userAddress, year } = req.body;
+
+    if (!userAddress || !year) {
+      return res.status(400).json({
+        success: false,
+        error: "userAddress and year are required",
+      });
+    }
+
+    const statement = await annualVestingStatementService.generateAnnualStatement(userAddress, parseInt(year));
+    
+    res.status(201).json({
+      success: true,
+      data: {
+        id: statement.id,
+        userAddress: statement.user_address,
+        year: statement.year,
+        generatedAt: statement.generated_at,
+        summary: {
+          totalVestedAmount: statement.total_vested_amount,
+          totalClaimedAmount: statement.total_claimed_amount,
+          totalUnclaimedAmount: statement.total_unclaimed_amount,
+          totalFMVUSD: statement.total_fmv_usd,
+          totalRealizedGainsUSD: statement.total_realized_gains_usd,
+          numberOfVaults: statement.number_of_vaults,
+          numberOfClaims: statement.number_of_claims,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Error generating annual statement:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// GET /api/statements/annual/:userAddress/:year - Get annual statement
+app.get("/api/statements/annual/:userAddress/:year", async (req, res) => {
+  try {
+    const { userAddress, year } = req.params;
+
+    const statement = await annualVestingStatementService.getStatement(userAddress, parseInt(year));
+    
+    res.json({
+      success: true,
+      data: {
+        id: statement.id,
+        userAddress: statement.user_address,
+        year: statement.year,
+        statementData: statement.statement_data,
+        generatedAt: statement.generated_at,
+        accessedAt: statement.accessed_at,
+        digitalSignature: statement.digital_signature,
+        transparencyKeyPublicKey: statement.transparency_key_public_address,
+        summary: {
+          totalVestedAmount: statement.total_vested_amount,
+          totalClaimedAmount: statement.total_claimed_amount,
+          totalUnclaimedAmount: statement.total_unclaimed_amount,
+          totalFMVUSD: statement.total_fmv_usd,
+          totalRealizedGainsUSD: statement.total_realized_gains_usd,
+          numberOfVaults: statement.number_of_vaults,
+          numberOfClaims: statement.number_of_claims,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Error getting annual statement:", error);
+    if (error.message.includes('not found')) {
+      res.status(404).json({
+        success: false,
+        error: error.message,
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+});
+
+// GET /api/statements/annual/:userAddress - Get user's annual statements
+app.get("/api/statements/annual/:userAddress", async (req, res) => {
+  try {
+    const { userAddress } = req.params;
+    const { limit = 10, offset = 0 } = req.query;
+
+    const statements = await annualVestingStatementService.getUserStatements(userAddress, {
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+    });
+    
+    res.json({
+      success: true,
+      data: {
+        statements: statements.rows.map(statement => ({
+          id: statement.id,
+          year: statement.year,
+          generatedAt: statement.generated_at,
+          accessedAt: statement.accessed_at,
+          summary: {
+            totalVestedAmount: statement.total_vested_amount,
+            totalClaimedAmount: statement.total_claimed_amount,
+            totalUnclaimedAmount: statement.total_unclaimed_amount,
+            totalFMVUSD: statement.total_fmv_usd,
+            totalRealizedGainsUSD: statement.total_realized_gains_usd,
+            numberOfVaults: statement.number_of_vaults,
+            numberOfClaims: statement.number_of_claims,
+          },
+        })),
+        pagination: {
+          total: statements.count,
+          limit: parseInt(limit),
+          offset: parseInt(offset),
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Error getting user statements:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// GET /api/statements/annual/:userAddress/:year/download - Download annual statement PDF
+app.get("/api/statements/annual/:userAddress/:year/download", async (req, res) => {
+  try {
+    const { userAddress, year } = req.params;
+
+    const statement = await annualVestingStatementService.getStatement(userAddress, parseInt(year));
+    await annualStatementPDFService.streamAnnualStatement(statement.statement_data, parseInt(year), res);
+  } catch (error) {
+    console.error("Error downloading annual statement:", error);
+    if (error.message.includes('not found')) {
+      res.status(404).json({
+        success: false,
+        error: error.message,
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+});
+
+// POST /api/statements/annual/verify - Verify statement authenticity
+app.post("/api/statements/annual/verify", async (req, res) => {
+  try {
+    const { userAddress, year, signature, pdfHash } = req.body;
+
+    if (!userAddress || !year || !signature || !pdfHash) {
+      return res.status(400).json({
+        success: false,
+        error: "userAddress, year, signature, and pdfHash are required",
+      });
+    }
+
+    // For verification, we would need the original PDF content
+    // This endpoint would typically be used with the PDF file upload
+    const isValid = await annualVestingStatementService.verifyStatementSignature(
+      userAddress, 
+      parseInt(year), 
+      signature, 
+      Buffer.from(pdfHash, 'hex')
+    );
+    
+    res.json({
+      success: true,
+      data: {
+        isValid,
+        verifiedAt: new Date().toISOString(),
+        statementId: `${userAddress}-${year}`,
+      },
+    });
+  } catch (error) {
+    console.error("Error verifying statement:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// GET /api/statements/annual/:userAddress/:year/summary - Get statement summary only
+app.get("/api/statements/annual/:userAddress/:year/summary", async (req, res) => {
+  try {
+    const { userAddress, year } = req.params;
+
+    const summary = await annualVestingStatementService.getStatementStats(userAddress, parseInt(year));
+    
+    if (!summary) {
+      return res.status(404).json({
+        success: false,
+        error: `Statement summary not found for ${userAddress} year ${year}`,
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: summary,
+    });
+  } catch (error) {
+    console.error("Error getting statement summary:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 // GET /api/dividend/history/:userAddress - Get user dividend history
 app.get("/api/dividend/history/:userAddress", async (req, res) => {
   try {
