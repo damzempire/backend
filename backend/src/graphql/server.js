@@ -3,6 +3,7 @@ const { typeDefs } = require('./schema');
 const { vaultResolver } = require('./resolvers/vaultResolver');
 const { userResolver } = require('./resolvers/userResolver');
 const { proofResolver } = require('./resolvers/proofResolver');
+const { anchorResolver } = require('./resolvers/anchorResolver');
 const { authMiddleware, vaultAccessMiddleware } = require('./middleware/auth');
 const { adaptiveRateLimitMiddleware } = require('./middleware/rateLimit');
 const { makeExecutableSchema } = require('@graphql-tools/schema');
@@ -12,7 +13,8 @@ const resolvers = {
   Query: {
     ...vaultResolver.Query,
     ...userResolver.Query,
-    ...proofResolver.Query
+    ...proofResolver.Query,
+    ...anchorResolver.Query
   },
   Mutation: {
     ...vaultResolver.Mutation,

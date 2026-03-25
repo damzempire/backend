@@ -292,6 +292,7 @@ class VestingService {
 
   /**
    * Process a withdrawal for a beneficiary.
+   * Updated to track cumulative claimed amounts to prevent dust loss.
    *
    * @param {Object} data
    * @param {string} data.vault_address
@@ -333,8 +334,40 @@ class VestingService {
       where: { vault_id: vault.id, address: beneficiary_address },
     });
 
+    // Update beneficiary total_withdrawn (legacy field)
     const newWithdrawn = parseFloat(beneficiary.total_withdrawn) + withdrawAmount;
     await beneficiary.update({ total_withdrawn: String(newWithdrawn) });
+
+    // Update subschedule cumulative_claimed_amount to prevent dust loss
+    const subSchedules = await SubSchedule.findAll({ 
+      where: { vault_id: vault.id, is_active: true } 
+    });
+
+    // Distribute withdrawal proportionally across subschedules
+    const totalVested = subSchedules.reduce((total, schedule) => {
+      const vested = this._calculateScheduleVestedAmount(schedule, withdrawTime);
+      return total + vested;
+    }, 0);
+
+    const distribution = [];
+    for (const schedule of subSchedules) {
+      const scheduleVested = this._calculateScheduleVestedAmount(schedule, withdrawTime);
+      if (totalVested > 0 && scheduleVested > 0) {
+        const proportion = scheduleVested / totalVested;
+        const scheduleWithdrawAmount = withdrawAmount * proportion;
+        
+        // Update cumulative claimed amount for this subschedule
+        const currentCumulative = parseFloat(schedule.cumulative_claimed_amount || 0);
+        const newCumulative = currentCumulative + scheduleWithdrawAmount;
+        await schedule.update({ cumulative_claimed_amount: String(newCumulative) });
+
+        distribution.push({
+          subschedule_id: schedule.id,
+          amount: scheduleWithdrawAmount,
+          transaction_hash,
+        });
+      }
+    }
 
     auditLogger.logAction(beneficiary_address, 'WITHDRAWAL', vault_address, {
       amount: withdrawAmount,
@@ -346,13 +379,134 @@ class VestingService {
     return {
       success: true,
       amount_withdrawn: withdrawAmount,
-      distribution: [
-        {
-          beneficiary_address,
-          amount: withdrawAmount,
-          transaction_hash,
-        },
-      ],
+      distribution,
+    };
+  }
+
+  /**
+   * Helper method to calculate vested amount for a subschedule
+   * Uses the same logic as ClaimCalculator to prevent dust loss
+   * @private
+   */
+  _calculateScheduleVestedAmount(subSchedule, currentTime) {
+    const asOfDate = currentTime instanceof Date ? currentTime : new Date(currentTime);
+    
+    // Check if cliff has passed
+    if (subSchedule.cliff_date && asOfDate < subSchedule.cliff_date) {
+      return 0;
+    }
+
+    // Check if vesting hasn't started
+    if (asOfDate < subSchedule.vesting_start_date) {
+      return 0;
+    }
+
+    // Check if vesting has fully completed
+    const vestingEnd = new Date(
+      subSchedule.vesting_start_date.getTime() + subSchedule.vesting_duration * 1000
+    );
+    if (asOfDate >= vestingEnd) {
+      return parseFloat(subSchedule.top_up_amount);
+    }
+
+    // Calculate vested amount using the new formula: Total_Vested = (Elapsed_Time * Total_Allocation) / Total_Duration
+    const elapsedTimeInSeconds = Math.floor((asOfDate - subSchedule.vesting_start_date) / 1000);
+    const totalAllocation = parseFloat(subSchedule.top_up_amount);
+    const totalDurationInSeconds = subSchedule.vesting_duration;
+    
+    const totalVested = (elapsedTimeInSeconds * totalAllocation) / totalDurationInSeconds;
+    return totalVested;
+  }
+
+  /**
+   * Calculate a clean break payout for a terminated beneficiary.
+   *
+   * Returns two-part instructions:
+   *  1) accrued earned tokens to employee
+   *  2) unearned tokens back to treasury
+   */
+  async calculateCleanBreak(vaultAddress, beneficiaryAddress, terminationTime = new Date(), treasuryAddress = null) {
+    const terminationDate = new Date(terminationTime);
+
+    const vault = await Vault.findOne({ where: { address: vaultAddress } });
+    if (!vault) {
+      throw new Error(`Vault not found: ${vaultAddress}`);
+    }
+    if (vault.is_blacklisted) {
+      throw new Error(`Vault ${vaultAddress} is blacklisted due to integrity failure. Operations are disabled.`);
+    }
+
+    const beneficiary = await Beneficiary.findOne({ where: { vault_id: vault.id, address: beneficiaryAddress } });
+    if (!beneficiary) {
+      throw new Error(`Beneficiary not found: ${beneficiaryAddress}`);
+    }
+
+    // Calculate direct vesting from active sub-schedules at terminationDate.
+    const subSchedules = await SubSchedule.findAll({ where: { vault_id: vault.id, is_active: true } });
+
+    let rawVestedAmount = 0;
+    let totalScheduleAmount = 0;
+
+    for (const schedule of subSchedules) {
+      const topUpAmount = parseFloat(schedule.top_up_amount) || 0;
+      const cliffEnd = new Date(schedule.vesting_start_date);
+      const startTime = cliffEnd.getTime();
+      const endTime = new Date(schedule.end_timestamp).getTime();
+
+      totalScheduleAmount += topUpAmount;
+
+      if (terminationDate < cliffEnd) {
+        continue;
+      }
+
+      if (terminationDate >= endTime) {
+        rawVestedAmount += topUpAmount;
+      } else {
+        const elapsed = terminationDate.getTime() - startTime;
+        const duration = endTime - startTime;
+        const vestedRatio = duration > 0 ? Math.min(1, Math.max(0, elapsed / duration)) : 1;
+        rawVestedAmount += topUpAmount * vestedRatio;
+      }
+    }
+
+    const totalAllocated = parseFloat(beneficiary.total_allocated) || 0;
+    const allocationRatio = totalScheduleAmount > 0 ? Math.min(1, totalAllocated / totalScheduleAmount) : 0;
+
+    const totalVested = rawVestedAmount * allocationRatio;
+    const alreadyWithdrawn = parseFloat(beneficiary.total_withdrawn) || 0;
+
+    const accruedSinceLastClaim = Math.max(0, totalVested - alreadyWithdrawn);
+    const unearnedAmount = Math.max(0, totalAllocated - totalVested);
+
+    const employeeTransfer = {
+      from: vault.owner_address,
+      to: beneficiary.address,
+      amount: parseFloat(accruedSinceLastClaim).toString(),
+      type: 'CLEAN_BREAK_EARNED_PAYOUT',
+      memo: 'Pro-rata vested accrued amount at termination',
+    };
+
+    const treasuryTransfer = {
+      from: vault.owner_address,
+      to: treasuryAddress || vault.owner_address,
+      amount: parseFloat(unearnedAmount).toString(),
+      type: 'CLEAN_BREAK_UNEARNED_RETURN',
+      memo: 'Unvested amount returned to treasury on termination',
+    };
+
+    return {
+      vault_address: vaultAddress,
+      beneficiary_address: beneficiaryAddress,
+      termination_timestamp: terminationDate.toISOString(),
+      accrued_since_last_claim: accruedSinceLastClaim,
+      total_vested_at_termination: totalVested,
+      total_allocated: totalAllocated,
+      unearned_amount: unearnedAmount,
+      treasury_address: treasuryAddress || vault.owner_address,
+      transactions: {
+        employee_transfer: employeeTransfer,
+        treasury_transfer: treasuryTransfer,
+      },
     };
   }
 

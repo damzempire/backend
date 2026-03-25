@@ -24,7 +24,7 @@ describe('ClaimCalculator', () => {
     it('should calculate claimable amount for static tokens', () => {
       const subSchedule = {
         top_up_amount: '1000',
-        amount_withdrawn: '200',
+        cumulative_claimed_amount: '200', // Updated to use cumulative_claimed_amount
         cliff_date: null,
         vesting_start_date: new Date('2024-01-01'),
         vesting_duration: 365 * 24 * 60 * 60, // 1 year in seconds
@@ -34,7 +34,7 @@ describe('ClaimCalculator', () => {
 
       const result = calculator.calculateStatic(subSchedule, currentTime);
 
-      // After 6 months, ~500 should be vested, minus 200 withdrawn = ~300 claimable
+      // After 6 months, ~500 should be vested, minus 200 claimed = ~300 claimable
       const resultNum = parseFloat(result);
       expect(resultNum).toBeGreaterThan(290);
       expect(resultNum).toBeLessThan(310);
@@ -43,7 +43,7 @@ describe('ClaimCalculator', () => {
     it('should return 0 if nothing is claimable', () => {
       const subSchedule = {
         top_up_amount: '1000',
-        amount_withdrawn: '1000',
+        cumulative_claimed_amount: '1000', // Updated to use cumulative_claimed_amount
         cliff_date: null,
         vesting_start_date: new Date('2024-01-01'),
         vesting_duration: 365 * 24 * 60 * 60,
@@ -58,7 +58,7 @@ describe('ClaimCalculator', () => {
     it('should return 0 before cliff date', () => {
       const subSchedule = {
         top_up_amount: '1000',
-        amount_withdrawn: '0',
+        cumulative_claimed_amount: '0', // Updated to use cumulative_claimed_amount
         cliff_date: new Date('2024-06-01'),
         vesting_start_date: new Date('2024-01-01'),
         vesting_duration: 365 * 24 * 60 * 60,
@@ -84,7 +84,7 @@ describe('ClaimCalculator', () => {
 
       const subSchedule = {
         top_up_amount: '1000',
-        amount_withdrawn: '0',
+        cumulative_claimed_amount: '0',
         cliff_date: null,
         vesting_start_date: new Date('2024-01-01'),
         vesting_duration: 365 * 24 * 60 * 60,
@@ -115,7 +115,7 @@ describe('ClaimCalculator', () => {
 
       const subSchedule = {
         top_up_amount: '1000',
-        amount_withdrawn: '0',
+        cumulative_claimed_amount: '0', // Updated to use cumulative_claimed_amount
         cliff_date: null,
         vesting_start_date: new Date('2025-01-01'), // Future start date
         vesting_duration: 365 * 24 * 60 * 60,
@@ -145,7 +145,7 @@ describe('ClaimCalculator', () => {
 
       const subSchedule = {
         top_up_amount: '1000',
-        amount_withdrawn: '600', // Withdrawn more than proportional share
+        cumulative_claimed_amount: '600', // Updated to use cumulative_claimed_amount
         cliff_date: null,
         vesting_start_date: new Date('2024-01-01'),
         vesting_duration: 365 * 24 * 60 * 60,
@@ -175,7 +175,7 @@ describe('ClaimCalculator', () => {
 
       const subSchedule1 = {
         top_up_amount: '600',
-        amount_withdrawn: '0',
+        cumulative_claimed_amount: '0', // Updated to use cumulative_claimed_amount
         cliff_date: null,
         vesting_start_date: new Date('2024-01-01'),
         vesting_duration: 365 * 24 * 60 * 60,
@@ -183,7 +183,7 @@ describe('ClaimCalculator', () => {
 
       const subSchedule2 = {
         top_up_amount: '400',
-        amount_withdrawn: '0',
+        cumulative_claimed_amount: '0', // Updated to use cumulative_claimed_amount
         cliff_date: null,
         vesting_start_date: new Date('2024-01-01'),
         vesting_duration: 365 * 24 * 60 * 60,
@@ -275,7 +275,7 @@ describe('ClaimCalculator', () => {
 
       const subSchedule = {
         top_up_amount: '1000',
-        amount_withdrawn: '0',
+        cumulative_claimed_amount: '0',
         cliff_date: null,
         vesting_start_date: new Date('2024-01-01'),
         vesting_duration: 365 * 24 * 60 * 60,
@@ -301,7 +301,7 @@ describe('ClaimCalculator', () => {
 
       const subSchedule = {
         top_up_amount: '1000',
-        amount_withdrawn: '0',
+        cumulative_claimed_amount: '0',
         cliff_date: null,
         vesting_start_date: new Date('2024-01-01'),
         vesting_duration: 365 * 24 * 60 * 60,

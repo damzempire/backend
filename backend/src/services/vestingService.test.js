@@ -12,7 +12,11 @@ describe('VestingService - createVault with token_type', () => {
 
 
   beforeEach(async () => {
-    await Vault.destroy({ where: {}, force: true });
+    await Promise.all([
+      Vault.destroy({ where: {}, force: true }),
+      require('../models').Beneficiary.destroy({ where: {}, force: true }),
+      require('../models').SubSchedule.destroy({ where: {}, force: true }),
+    ]);
   });
 
   describe('Token Type Support', () => {
@@ -137,6 +141,55 @@ describe('VestingService - createVault with token_type', () => {
           token_type: 'invalid'
         })
       ).rejects.toThrow('Invalid token type: invalid');
+    });
+  });
+
+  describe('Clean Break Termination', () => {
+    test('should return accrual + unearned transaction instructions at termination second', async () => {
+      const vault = await vestingService.createVault(
+        '0xadmin0000000000000000000000000000000000',
+        '0xvault0000000000000000000000000000000000',
+        '0xowner0000000000000000000000000000000000',
+        '0xtoken0000000000000000000000000000000000',
+        '100',
+        new Date('2024-01-01'),
+        new Date('2025-01-01'),
+        null,
+        'static'
+      );
+
+      const createdBeneficiary = await require('../models').Beneficiary.create({
+        vault_id: vault.vault.id,
+        address: '0xben0000000000000000000000000000000000',
+        total_allocated: '100',
+        total_withdrawn: '20',
+      });
+
+      // Add a subSchedule that is 50% vested at T=50 seconds
+      const topUp = await vestingService.processTopUp({
+        vault_address: vault.vault.address,
+        amount: '100',
+        cliff_duration_seconds: 0,
+        vesting_duration_seconds: 100,
+        transaction_hash: '0xtxcleanbreak',
+        timestamp: new Date('2024-01-01T00:00:00Z'),
+      });
+
+      const terminationTimestamp = new Date('2024-01-01T00:00:50Z');
+
+      const result = await vestingService.calculateCleanBreak(
+        vault.vault.address,
+        createdBeneficiary.address,
+        terminationTimestamp,
+        '0xtreasury',
+      );
+
+      expect(result.accrued_since_last_claim).toBeCloseTo(30, 8);
+      expect(result.total_vested_at_termination).toBeCloseTo(50, 8);
+      expect(result.unearned_amount).toBeCloseTo(50, 8);
+      expect(result.transactions.employee_transfer.amount).toBe('30');
+      expect(result.transactions.treasury_transfer.amount).toBe('50');
+      expect(result.transactions.treasury_transfer.to).toBe('0xtreasury');
     });
   });
 });
