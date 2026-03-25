@@ -45,6 +45,8 @@ const models = {
   VaultLegalDocument,
   VaultLiquidityAlert,
   Rule144Compliance,
+  TaxCalculation,
+  TaxJurisdiction,
   RevocationProposal,
   RevocationSignature,
   MultiSigConfig,
