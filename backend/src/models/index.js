@@ -22,6 +22,7 @@ const VestingMilestone = require("./vestingMilestone");
 const HistoricalTokenPrice = require("./historicalTokenPrice");
 const CostBasisReport = require("./costBasisReport");
 const AuditorToken = require("./auditorToken");
+const VaultRegistry = require("./vaultRegistry");
 
 const { Token, initTokenModel } = require("./token");
 const {
@@ -63,6 +64,7 @@ const models = {
   AnnualVestingStatement,
   Token,
   OrganizationWebhook,
+  VaultRegistry,
   sequelize,
 };
 

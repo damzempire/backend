@@ -30,7 +30,14 @@ The API documentation is available through Swagger UI at:
 #### 4. Portfolio Endpoints
 - `GET /api/user/{address}/portfolio` - Get user portfolio
 
-#### 5. GraphQL Endpoint
+#### 5. Vault Registry Endpoints (Ecosystem Discovery)
+- `GET /api/registry/vaults/by-creator/{creatorAddress}` - List all vaults created by a specific address
+- `GET /api/registry/vaults/search` - Search vaults by project name
+- `GET /api/registry/vaults` - Get all vaults in the registry (for ecosystem analytics)
+- `GET /api/registry/vaults/{contractId}` - Get specific vault details by contract ID
+- `GET /api/registry/stats` - Get registry statistics for ecosystem analytics
+
+#### 6. GraphQL Endpoint
 - `GET/POST /graphql` - GraphQL Playground and API endpoint
 
 ### Authentication
@@ -100,6 +107,20 @@ The API supports two authentication methods:
 - `priceAtClaimUsd`: Price of the token at the time of claim in USD
 - `createdAt`: Creation timestamp
 - `updatedAt`: Last update timestamp
+
+#### VaultRegistry
+- `id`: Auto-generated unique identifier
+- `contractId`: Stellar contract address/hash of the vault
+- `projectName`: Human-readable project name for the vault
+- `creatorAddress`: Address of the vault creator/owner
+- `deploymentLedger`: Ledger number when the vault was deployed
+- `deploymentTransactionHash`: Transaction hash of vault deployment
+- `tokenAddress`: Token address associated with the vault
+- `vaultType`: Type of vault contract (standard, cliff, dynamic)
+- `isActive`: Whether this vault is currently active
+- `metadata`: Additional metadata about the vault (JSON format)
+- `discoveredAt`: When this vault was discovered by the indexer
+- `updatedAt`: Last time this record was updated
 
 ## Getting Started
 
