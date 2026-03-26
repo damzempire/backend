@@ -19,7 +19,7 @@ const rule144ComplianceMiddleware = async (req, res, next) => {
       return next();
     }
 
-    const { user_address, vault_id } = req.body;
+    const { user_address, vault_id } = req.body || {};
     
     if (!user_address || !vault_id) {
       return res.status(400).json({
@@ -111,7 +111,7 @@ const recordClaimComplianceMiddleware = async (req, res, next) => {
       return next();
     }
 
-    const { user_address, vault_id, amount_claimed } = req.body;
+    const { user_address, vault_id, amount_claimed } = req.body || {};
     
     if (!user_address || !vault_id || !amount_claimed) {
       return next();
@@ -154,15 +154,22 @@ const autoCreateComplianceMiddleware = async (req, res, next) => {
     
     // Example for beneficiary creation:
     if (req.path.includes('/beneficiaries') && req.method === 'POST') {
-      const { vault_id, beneficiary_address, vesting_start_date, top_up_amount } = req.body;
+      const { vault_id, beneficiary_address, vesting_start_date, top_up_amount } = req.body || {};
       
       if (vault_id && beneficiary_address) {
         try {
+          const acquisitionDate = vesting_start_date ? new Date(vesting_start_date) : new Date();
+          
+          // Validate date to prevent DB errors
+          if (isNaN(acquisitionDate.getTime())) {
+            throw new Error('Invalid vesting_start_date provided');
+          }
+
           await rule144ComplianceService.createComplianceRecord({
             vaultId: vault_id,
             userAddress: beneficiary_address,
-            tokenAddress: req.body.token_address, // Should be available from vault
-            acquisitionDate: new Date(vesting_start_date),
+            tokenAddress: req.body?.token_address,
+            acquisitionDate: acquisitionDate,
             totalAmountAcquired: top_up_amount || '0',
             isRestrictedSecurity: true // Default to restricted for US investors
           });
