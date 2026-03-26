@@ -161,6 +161,7 @@ const hsmRoutes = require("./routes/hsm");
 const historicalPriceRoutes = require("./routes/historicalPriceRoutes");
 const auditorRoutes = require("./routes/auditor");
 const vaultRegistryRoutes = require("./routes/vaultRegistry");
+const contractUpgradeRoutes = require("./routes/contractUpgrade");
 
 app.get("/", (req, res) => {
   res.json({ message: "Vesting Vault API is running!" });
@@ -324,6 +325,9 @@ app.use("/api/auditor", auditorRoutes);
 
 // Mount vault registry routes (ecosystem-wide vault discovery)
 app.use("/api/registry", vaultRegistryRoutes);
+
+// Mount contract upgrade routes (proxy-style upgrade functionality)
+app.use("/api/contract-upgrade", contractUpgradeRoutes);
 
 // Historical price tracking job management endpoints
 app.post("/api/admin/jobs/historical-prices/start", async (req, res) => {
