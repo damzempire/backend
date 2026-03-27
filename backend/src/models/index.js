@@ -32,6 +32,8 @@ const ContractUpgradeProposal = require("./contractUpgradeProposal");
 const ContractUpgradeSignature = require("./contractUpgradeSignature");
 const ContractUpgradeAuditLog = require("./contractUpgradeAuditLog");
 const CertifiedBuild = require("./certifiedBuild");
+const CleanupTask = require("./cleanupTask");
+const CleanupReward = require("./cleanupReward");
 
 const { Token, initTokenModel } = require("./token");
 const {
@@ -78,6 +80,8 @@ const models = {
   ContractUpgradeSignature,
   ContractUpgradeAuditLog,
   CertifiedBuild,
+  CleanupTask,
+  CleanupReward,
   sequelize,
 };
 
