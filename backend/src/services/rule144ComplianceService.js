@@ -7,6 +7,7 @@
 
 const { Rule144Compliance, Vault, SubSchedule } = require('../models');
 const Sentry = require('@sentry/node');
+const BigNumber = require('bignumber.js');
 
 class Rule144ComplianceService {
   /**
@@ -77,7 +78,8 @@ class Rule144ComplianceService {
           where: {
             vault_id: vaultId,
             beneficiary_address: userAddress
-          }
+          },
+          order: [['vesting_start_date', 'ASC']]
         });
 
         if (!subSchedule) {
@@ -151,12 +153,14 @@ class Rule144ComplianceService {
 
       // Track withdrawal based on compliance
       if (complianceRecord.compliance_status === 'COMPLIANT') {
-        const currentCompliant = parseFloat(complianceRecord.amount_withdrawn_compliant);
-        complianceRecord.amount_withdrawn_compliant = String(currentCompliant + parseFloat(amountClaimed));
+        const currentCompliant = new BigNumber(complianceRecord.amount_withdrawn_compliant || 0);
+        const totalCompliant = currentCompliant.plus(amountClaimed || 0);
+        complianceRecord.amount_withdrawn_compliant = totalCompliant.toFixed(18);
       } else {
-        const currentRestricted = parseFloat(complianceRecord.amount_withdrawn_restricted);
-        complianceRecord.amount_withdrawn_restricted = String(currentRestricted + parseFloat(amountClaimed));
-        
+        const currentRestricted = new BigNumber(complianceRecord.amount_withdrawn_restricted || 0);
+        const totalRestricted = currentRestricted.plus(amountClaimed || 0);
+        complianceRecord.amount_withdrawn_restricted = totalRestricted.toFixed(18);
+
         // Log restricted withdrawal for compliance monitoring
         console.warn(`RESTRICTED WITHDRAWAL: User ${userAddress} claimed ${amountClaimed} from vault ${vaultId} before holding period end`);
         

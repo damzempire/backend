@@ -2,6 +2,10 @@ const { DataTypes } = require('sequelize');
 const { sequelize } = require('../database/connection');
 const BigNumber = require('bignumber.js');
 
+/**
+ * TaxCalculation Model
+ * Stores individual tax liability assessments for vesting and claim events.
+ */
 const TaxCalculation = sequelize.define('TaxCalculation', {
   id: {
     type: DataTypes.UUID,
@@ -18,7 +22,7 @@ const TaxCalculation = sequelize.define('TaxCalculation', {
     allowNull: false,
   },
   jurisdiction_code: {
-    type: DataTypes.STRING(10),
+    type: DataTypes.STRING,
     allowNull: false,
   },
   tax_year: {
@@ -37,7 +41,7 @@ const TaxCalculation = sequelize.define('TaxCalculation', {
     type: DataTypes.DECIMAL(18, 8),
     allowNull: false,
   },
-  taxable_value_usd: {
+  total_value_usd: {
     type: DataTypes.DECIMAL(18, 2),
     allowNull: false,
   },
@@ -45,26 +49,22 @@ const TaxCalculation = sequelize.define('TaxCalculation', {
     type: DataTypes.DECIMAL(5, 2),
     allowNull: false,
   },
-  estimated_tax_usd: {
+  tax_liability_usd: {
     type: DataTypes.DECIMAL(18, 2),
     allowNull: false,
   },
-  withholding_amount_token: {
+  withholding_tokens_estimate: {
     type: DataTypes.DECIMAL(36, 18),
     allowNull: true,
-    comment: 'Amount of tokens needed to cover tax (Sell-to-Cover)'
+    comment: 'Estimated tokens needed for Sell-to-Cover'
   },
   oracle_source: {
     type: DataTypes.STRING,
-    defaultValue: 'INTERNAL',
+    defaultValue: 'INTERNAL_FALLBACK',
   },
   status: {
-    type: DataTypes.ENUM('PENDING', 'PROCESSED', 'FAILED'),
+    type: DataTypes.ENUM('PENDING', 'COMPLETED', 'FAILED'),
     defaultValue: 'PENDING',
-  },
-  created_at: {
-    type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW,
   }
 }, {
   tableName: 'tax_calculations',
@@ -76,23 +76,5 @@ const TaxCalculation = sequelize.define('TaxCalculation', {
     { fields: ['vault_id'] }
   ]
 });
-
-// Static helper for test suite and service integration
-TaxCalculation.createTaxCalculation = async function(data) {
-  return await this.create({
-    vault_id: data.vaultId,
-    user_address: data.userAddress,
-    jurisdiction_code: data.taxJurisdiction || 'US',
-    tax_year: data.taxYear,
-    event_type: data.taxEventType || 'VESTING',
-    token_amount: data.vestedAmount || data.claimedAmount || 0,
-    token_price_usd: data.tokenPriceUsd || 0,
-    taxable_value_usd: data.fairMarketValueUsd || 0,
-    tax_rate: data.taxRatePercent || 0,
-    estimated_tax_usd: new BigNumber(data.fairMarketValueUsd || 0).times(data.taxRatePercent || 0).div(100).toString(),
-    status: data.userConfirmed ? 'PROCESSED' : 'PENDING',
-    created_at: data.taxEventDate || new Date()
-  });
-};
 
 module.exports = TaxCalculation;

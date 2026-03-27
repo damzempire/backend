@@ -56,7 +56,7 @@ class WalletRateLimiter {
 
     // Basic validation - wallet addresses should be alphanumeric and reasonable length
     // This can be enhanced based on specific wallet format requirements
-    const addressRegex = /^[a-zA-Z0-9]{20,50}$/;
+    const addressRegex = /^[a-zA-Z0-9]{20,60}$/;
     return addressRegex.test(address);
   }
 
