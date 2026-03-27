@@ -153,6 +153,7 @@ const vaultArchivalJob = require("./jobs/vaultArchivalJob");
 const historicalPriceTrackingJob = require("./jobs/historicalPriceTrackingJob");
 const integrityMonitoringJob = require("./jobs/integrityMonitoringJob");
 const vaultRegistryIndexingJob = require("./jobs/vaultRegistryIndexingJob");
+const stellarPathPaymentListener = require("./services/stellarPathPaymentListener");
 
 // Import webhooks routes
 const webhooksRoutes = require("./routes/webhooks");
@@ -162,7 +163,7 @@ const historicalPriceRoutes = require("./routes/historicalPriceRoutes");
 const auditorRoutes = require("./routes/auditor");
 const vaultRegistryRoutes = require("./routes/vaultRegistry");
 const contractUpgradeRoutes = require("./routes/contractUpgrade");
-const cleanupRewardsRoutes = require("./routes/cleanupRewards");
+const conversionAnalyticsRoutes = require("./routes/conversionAnalytics");
 
 app.get("/", (req, res) => {
   res.json({ message: "Vesting Vault API is running!" });
@@ -330,8 +331,8 @@ app.use("/api/registry", vaultRegistryRoutes);
 // Mount contract upgrade routes (proxy-style upgrade functionality)
 app.use("/api/contract-upgrade", contractUpgradeRoutes);
 
-// Mount cleanup rewards routes (storage cleanup incentive system)
-app.use("/api/cleanup", cleanupRewardsRoutes);
+// Mount conversion analytics routes (path payment analytics and cost basis tracking)
+app.use("/api/conversions", conversionAnalyticsRoutes);
 
 // Historical price tracking job management endpoints
 app.post("/api/admin/jobs/historical-prices/start", async (req, res) => {
@@ -2106,6 +2107,14 @@ const startServer = async () => {
       console.log("Vault Registry Indexing Job started successfully.");
     } catch (jobError) {
       console.error("Failed to initialize Vault Registry Indexing Job:", jobError);
+    }
+
+    // Initialize Stellar Path Payment Listener
+    try {
+      stellarPathPaymentListener.start();
+      console.log("Stellar Path Payment Listener started successfully.");
+    } catch (listenerError) {
+      console.error("Failed to initialize Stellar Path Payment Listener:", listenerError);
     }
 
     // Start HTTP server

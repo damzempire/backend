@@ -37,6 +37,11 @@ const ClaimsHistory = sequelize.define('ClaimsHistory', {
     allowNull: true,
     comment: 'Token price in USD at the time of claim for realized gains calculation',
   },
+  conversion_event_id: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    comment: 'Associated conversion event ID if claim was followed by immediate swap',
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW,
@@ -73,6 +78,12 @@ ClaimsHistory.associate = function (models) {
     foreignKey: 'token_address',
     sourceKey: 'address',
     as: 'token'
+  });
+
+  ClaimsHistory.belongsTo(models.ConversionEvent, {
+    foreignKey: 'conversion_event_id',
+    sourceKey: 'id',
+    as: 'conversionEvent'
   });
 };
 
