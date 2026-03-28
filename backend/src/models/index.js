@@ -33,6 +33,7 @@ const ContractUpgradeSignature = require("./contractUpgradeSignature");
 const ContractUpgradeAuditLog = require("./contractUpgradeAuditLog");
 const CertifiedBuild = require("./certifiedBuild");
 const ConversionEvent = require("./conversionEvent");
+const MilestoneCelebrationWebhook = require("./milestoneCelebrationWebhook");
 
 const { Token, initTokenModel } = require("./token");
 const {
@@ -80,6 +81,7 @@ const models = {
   ContractUpgradeAuditLog,
   CertifiedBuild,
   ConversionEvent,
+  MilestoneCelebrationWebhook,
   sequelize,
 };
 

@@ -65,13 +65,19 @@ jobs:
     runs-on: ubuntu-latest
     
     services:
-      sqlite:
-        image: keinos/sqlite3:latest
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: password
+          POSTGRES_USER: postgres
+          POSTGRES_DB: vesting_vault_test
         options: >-
-          --health-cmd "sqlite3 --version"
+          --health-cmd pg_isready
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+        ports:
+          - 5432:5432
 
     steps:
       - uses: actions/checkout@v4
@@ -81,20 +87,26 @@ jobs:
         with:
           node-version: '18'
           cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
           
       - name: Install dependencies
+        working-directory: ./backend
         run: npm ci
         
       - name: Create environment file
+        working-directory: ./backend
         run: cp .env.example .env
         
       - name: Create data directory
+        working-directory: ./backend
         run: mkdir -p data
         
       - name: Run backend tests
+        working-directory: ./backend
         run: npm test
         
       - name: Generate coverage report
+        working-directory: ./backend
         run: npm run test:coverage
 
   integration-tests:
@@ -109,6 +121,7 @@ jobs:
         with:
           node-version: '18'
           cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
           
       - name: Install Rust
         uses: actions-rs/toolchain@v1
@@ -118,6 +131,7 @@ jobs:
           override: true
           
       - name: Install dependencies
+        working-directory: ./backend
         run: |
           npm ci
           curl -L https://github.com/stellar/soroban/releases/latest/download/soroban-cli-linux-x86_64.tar.gz | tar xz
@@ -129,17 +143,24 @@ jobs:
           cargo build --target wasm32-unknown-unknown --release
           
       - name: Start backend server
+        working-directory: ./backend
         run: |
           cp .env.example .env
           mkdir -p data
+          export NODE_ENV=test
+          export DB_HOST=localhost
+          export DB_PORT=5432
+          export DB_NAME=vesting_vault_test
+          export DB_USER=postgres
+          export DB_PASSWORD=password
           npm start &
-          sleep 10
+          sleep 15
           
       - name: Run integration tests
         run: |
           echo "Testing backend API with smart contracts..."
-          curl -f http://localhost:3000/ || exit 1
-          curl -f http://localhost:3000/api/audit/verify || exit 1
+          curl -f http://localhost:4000/ || exit 1
+          curl -f http://localhost:4000/api/audit/verify || exit 1
           
       - name: Test reentrancy protection
         run: |

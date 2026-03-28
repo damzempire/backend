@@ -1,4 +1,4 @@
-const { Vault, SubSchedule, Beneficiary, Organization, Notification } = require('../models');
+const { Vault, SubSchedule, Beneficiary, Organization, Notification, MilestoneCelebrationWebhook } = require('../models');
 
 // Setup model associations
 Vault.hasMany(SubSchedule, {
@@ -67,6 +67,11 @@ Organization.associate = function(models) {
     foreignKey: 'org_id',
     as: 'vaults',
   });
+
+  Organization.hasMany(models.MilestoneCelebrationWebhook, {
+    foreignKey: 'organization_id',
+    as: 'milestoneCelebrationWebhooks',
+  });
 };
 
 SubSchedule.associate = function(models) {
@@ -105,10 +110,18 @@ Notification.associate = function(models) {
   });
 };
 
+MilestoneCelebrationWebhook.associate = function(models) {
+  MilestoneCelebrationWebhook.belongsTo(models.Organization, {
+    foreignKey: 'organization_id',
+    as: 'organization'
+  });
+};
+
 module.exports = {
   Vault,
   SubSchedule,
   Beneficiary,
   Organization,
   Notification,
+  MilestoneCelebrationWebhook,
 };
