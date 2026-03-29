@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: vesting-vault
+data:
+  NODE_ENV: "production"
+  PORT: "3000"
+  DB_HOST: "postgres-service"
+  DB_PORT: "5432"
+  DB_NAME: "vesting_vault"
+  REDIS_URL: "redis://redis-service:6379"
+  # OpenTelemetry Configuration
+  OTEL_SERVICE_NAME: "vesting-vault-backend"
+  OTEL_EXPORTER_JAEGER_ENDPOINT: "http://jaeger-collector.observability:14268/api/traces"
+  OTEL_TRACES_SAMPLE_RATE: "1.0"
+  ENABLE_JAEGER: "true"

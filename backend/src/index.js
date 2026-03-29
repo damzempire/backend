@@ -14,6 +14,9 @@ const { nodeProfilingIntegration } = require("@sentry/profiling-node");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpecs = require("./swagger/options");
 
+// Initialize OpenTelemetry BEFORE everything else
+require("./services/telemetryService");
+
 dotenv.config();
 
 const app = express();
@@ -37,6 +40,10 @@ if (process.env.SENTRY_DSN && Sentry.Handlers) {
   app.use(Sentry.Handlers.requestHandler());
   app.use(Sentry.Handlers.tracingHandler());
 }
+
+// OpenTelemetry tracing middleware - applies to all routes
+const { tracingMiddleware } = require("./middleware/tracing.middleware");
+app.use(tracingMiddleware);
 
 // Middleware
 app.use(cors());
@@ -147,6 +154,7 @@ const multiSigRevocationService = require("./services/multiSigRevocationService"
 const dividendService = require("./services/dividendService");
 const accountConsolidationService = require("./services/accountConsolidationService");
 const VaultService = require("./services/vaultService");
+const batchRevocationService = require("./services/batchRevocationService");
 const monthlyReportJob = require("./jobs/monthlyReportJob");
 const { VaultReconciliationJob } = require("./jobs/vaultReconciliationJob");
 const vaultArchivalJob = require("./jobs/vaultArchivalJob");
@@ -154,6 +162,7 @@ const historicalPriceTrackingJob = require("./jobs/historicalPriceTrackingJob");
 const integrityMonitoringJob = require("./jobs/integrityMonitoringJob");
 const vaultRegistryIndexingJob = require("./jobs/vaultRegistryIndexingJob");
 const stellarPathPaymentListener = require("./services/stellarPathPaymentListener");
+const batchRevocationService = require("./services/batchRevocationService");
 
 // Import webhooks routes
 const webhooksRoutes = require("./routes/webhooks");
@@ -172,6 +181,60 @@ app.get("/", (req, res) => {
 
 app.get("/health", (req, res) => {
   res.json({ status: "OK", timestamp: new Date().toISOString() });
+});
+
+// Enhanced health check with readiness probe
+app.get("/health/ready", async (req, res) => {
+  try {
+    // Check database connection
+    await sequelize.authenticate();
+    
+    // Check Redis connection if available
+    let redisStatus = "not_configured";
+    try {
+      const cacheService = require("./services/cacheService");
+      if (cacheService.isReady()) {
+        redisStatus = "healthy";
+      }
+    } catch (redisError) {
+      redisStatus = "unavailable";
+    }
+
+    // All checks passed
+    res.json({
+      status: "ready",
+      timestamp: new Date().toISOString(),
+      checks: {
+        database: "healthy",
+        redis: redisStatus,
+      },
+    });
+  } catch (error) {
+    console.error("Health check failed:", error);
+    res.status(503).json({
+      status: "not_ready",
+      timestamp: new Date().toISOString(),
+      error: error.message,
+    });
+  }
+});
+
+// Liveness probe endpoint
+app.get("/health/live", (req, res) => {
+  // Simple liveness check - just confirms the process is running
+  const uptime = process.uptime();
+  const memoryUsage = process.memoryUsage();
+  
+  res.json({
+    status: "alive",
+    timestamp: new Date().toISOString(),
+    uptime: Math.floor(uptime),
+    memory: {
+      heapUsed: Math.round(memoryUsage.heapUsed / 1024 / 1024) + "MB",
+      heapTotal: Math.round(memoryUsage.heapTotal / 1024 / 1024) + "MB",
+      rss: Math.round(memoryUsage.rss / 1024 / 1024) + "MB",
+    },
+  });
 });
 
 // Authentication endpoints
@@ -691,6 +754,83 @@ app.get("/api/claims/:userAddress/realized-gains", async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message,
+    });
+  }
+});
+
+// POST /api/admin/batch-revoke - Batch revoke multiple beneficiaries
+app.post("/api/admin/batch-revoke", authService.authenticate(true), async (req, res) => {
+  try {
+    const { 
+      vaultAddress, 
+      beneficiaryAddresses, 
+      reason, 
+      treasuryAddress,
+      admin_address 
+    } = req.body;
+
+    // Validate input
+    if (!vaultAddress || !beneficiaryAddresses || !reason) {
+      return res.status(400).json({
+        success: false,
+        error: "vaultAddress, beneficiaryAddresses, and reason are required",
+      });
+    }
+
+    if (!Array.isArray(beneficiaryAddresses) || beneficiaryAddresses.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "beneficiaryAddresses must be a non-empty array",
+      });
+    }
+
+    // Use authenticated user's address as admin address
+    const adminAddress = req.user.address;
+
+    // Validate parameters
+    await batchRevocationService.validateBatchRevocation({
+      vaultAddress,
+      beneficiaryAddresses,
+      adminAddress,
+    });
+
+    // Execute batch revocation
+    const result = await batchRevocationService.batchRevokeBeneficiaries({
+      vaultAddress,
+      beneficiaryAddresses,
+      adminAddress,
+      reason,
+      treasuryAddress,
+    });
+
+    res.json({ 
+      success: true, 
+      message: result.message,
+      data: {
+        vault_address: result.vault_address,
+        beneficiaries_revoked: result.beneficiaries_revoked,
+        total_vested_paid: result.total_vested_paid,
+        total_unvested_returned: result.total_unvested_returned,
+        treasury_address: result.treasury_address,
+        individual_results: result.results,
+      },
+    });
+  } catch (error) {
+    console.error("Batch revocation error:", error);
+    
+    // Handle specific error types
+    let statusCode = 500;
+    if (error.message.includes('not found')) {
+      statusCode = 404;
+    } else if (error.message.includes('blacklisted') || error.message.includes('Unauthorized')) {
+      statusCode = 403;
+    } else if (error.message.includes('required') || error.message.includes('must be')) {
+      statusCode = 400;
+    }
+
+    res.status(statusCode).json({ 
+      success: false, 
+      error: error.message 
     });
   }
 });
