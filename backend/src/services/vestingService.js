@@ -376,6 +376,14 @@ class VestingService {
       timestamp: withdrawTime,
     });
 
+    // Accumulate protocol sustainability fee (0.1% by default)
+    try {
+        const feeDistributorService = require('./feeDistributorService');
+        await feeDistributorService.accumulateFeeForVault(vault.id, withdrawAmount);
+    } catch (feeError) {
+        console.warn('Failed to accumulate protocol fee:', feeError.message);
+    }
+
     return {
       success: true,
       amount_withdrawn: withdrawAmount,

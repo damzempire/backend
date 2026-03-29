@@ -37,6 +37,10 @@ const GrantStream = require("./grantStream");
 const FutureLien = require("./futureLien");
 const LienRelease = require("./lienRelease");
 const LienMilestone = require("./lienMilestone");
+const DAOProposal = require("./daoProposal");
+const DAOVote = require("./daoVote");
+const ContractUpgradeSignature = require("./contractUpgradeSignature");
+const ContractUpgradeAuditLog = require("./contractUpgradeAuditLog");
 
 const { Token, initTokenModel } = require("./token");
 const {
@@ -90,6 +94,10 @@ const models = {
   FutureLien,
   LienRelease,
   LienMilestone,
+  DAOProposal,
+  DAOVote,
+  ContractUpgradeSignature,
+  ContractUpgradeAuditLog,
   sequelize,
 };
 

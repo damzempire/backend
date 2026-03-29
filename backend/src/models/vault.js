@@ -64,6 +64,12 @@ const Vault = sequelize.define('Vault', {
     defaultValue: 0,
 
   },
+  accumulated_fees: {
+    type: DataTypes.DECIMAL(36, 18),
+    allowNull: false,
+    defaultValue: 0,
+    comment: 'Sustainability fees accumulated in this vault',
+  },
 
   token_type: {
     type: DataTypes.ENUM('static', 'dynamic'),
