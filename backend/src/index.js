@@ -60,9 +60,9 @@ const {
 } = require("./middleware/vaultPause.middleware");
 
 // Import and apply Rule 144 compliance middleware
-const { 
-  rule144ComplianceMiddleware, 
-  recordClaimComplianceMiddleware 
+const {
+  rule144ComplianceMiddleware,
+  recordClaimComplianceMiddleware
 } = require('./middleware/rule144Compliance.middleware');
 
 // Apply vault status middleware to all API routes
@@ -690,10 +690,10 @@ app.post("/api/merkle-vault/build-tree", async (req, res) => {
 app.post("/api/claims", claimRateLimiter, async (req, res) => {
   try {
     const claim = await indexingService.processClaim(req.body);
-    
+
     // Apply recording middleware after successful claim
-    await recordClaimComplianceMiddleware(req, res, () => {});
-    
+    await recordClaimComplianceMiddleware(req, res, () => { });
+
     res.status(201).json({ success: true, data: claim });
   } catch (error) {
     console.error("Error processing claim:", error);
@@ -704,13 +704,13 @@ app.post("/api/claims", claimRateLimiter, async (req, res) => {
 app.post("/api/claims/batch", claimRateLimiter, async (req, res) => {
   try {
     const result = await indexingService.processBatchClaims(req.body.claims);
-    
+
     // Apply recording middleware for each claim in batch
     for (const claim of req.body.claims) {
       const mockReq = { body: claim, path: '/api/claims/batch' };
-      await recordClaimComplianceMiddleware(mockReq, res, () => {});
+      await recordClaimComplianceMiddleware(mockReq, res, () => { });
     }
-    
+
     res.json({ success: true, data: result });
   } catch (error) {
     console.error("Error processing batch claims:", error);
@@ -909,6 +909,60 @@ app.post("/api/admin/transfer", async (req, res) => {
     res.json({ success: true, data: result });
   } catch (error) {
     console.error("Error transferring vault:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/admin/vault/privacy - Toggle privacy mode for a vault
+app.post("/api/admin/vault/privacy", async (req, res) => {
+  try {
+    const { adminAddress, vaultId, privacyModeEnabled, privacyMetadata } = req.body;
+
+    if (!adminAddress || !vaultId || typeof privacyModeEnabled !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: adminAddress, vaultId, privacyModeEnabled'
+      });
+    }
+
+    const { Vault } = require("./models");
+
+    // Find the vault
+    const vault = await Vault.findByPk(vaultId);
+    if (!vault) {
+      return res.status(404).json({
+        success: false,
+        error: 'Vault not found'
+      });
+    }
+
+    // Check if user is admin or vault owner
+    const isAdmin = adminAddress === process.env.ADMIN_ADDRESS;
+    const isOwner = vault.owner_address === adminAddress;
+
+    if (!isAdmin && !isOwner) {
+      return res.status(403).json({
+        success: false,
+        error: 'Only admin or vault owner can toggle privacy mode'
+      });
+    }
+
+    // Update privacy mode settings
+    await vault.update({
+      privacy_mode_enabled: privacyModeEnabled,
+      privacy_metadata: privacyMetadata || null
+    });
+
+    res.json({
+      success: true,
+      data: {
+        vault_id: vault.id,
+        privacy_mode_enabled: vault.privacy_mode_enabled,
+        privacy_metadata: vault.privacy_metadata
+      }
+    });
+  } catch (error) {
+    console.error("Error toggling privacy mode:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1810,7 +1864,7 @@ app.post("/api/statements/annual/generate", async (req, res) => {
     }
 
     const statement = await annualVestingStatementService.generateAnnualStatement(userAddress, parseInt(year));
-    
+
     res.status(201).json({
       success: true,
       data: {
@@ -1844,7 +1898,7 @@ app.get("/api/statements/annual/:userAddress/:year", async (req, res) => {
     const { userAddress, year } = req.params;
 
     const statement = await annualVestingStatementService.getStatement(userAddress, parseInt(year));
-    
+
     res.json({
       success: true,
       data: {
@@ -1893,7 +1947,7 @@ app.get("/api/statements/annual/:userAddress", async (req, res) => {
       limit: parseInt(limit),
       offset: parseInt(offset),
     });
-    
+
     res.json({
       success: true,
       data: {
@@ -1966,12 +2020,12 @@ app.post("/api/statements/annual/verify", async (req, res) => {
     // For verification, we would need the original PDF content
     // This endpoint would typically be used with the PDF file upload
     const isValid = await annualVestingStatementService.verifyStatementSignature(
-      userAddress, 
-      parseInt(year), 
-      signature, 
+      userAddress,
+      parseInt(year),
+      signature,
       Buffer.from(pdfHash, 'hex')
     );
-    
+
     res.json({
       success: true,
       data: {
@@ -1995,14 +2049,14 @@ app.get("/api/statements/annual/:userAddress/:year/summary", async (req, res) =>
     const { userAddress, year } = req.params;
 
     const summary = await annualVestingStatementService.getStatementStats(userAddress, parseInt(year));
-    
+
     if (!summary) {
       return res.status(404).json({
         success: false,
         error: `Statement summary not found for ${userAddress} year ${year}`,
       });
     }
-    
+
     res.json({
       success: true,
       data: summary,
@@ -2080,8 +2134,8 @@ app.get("/api/user/:address/consolidated", async (req, res) => {
     let parsedVaultAddresses = null;
     if (vaultAddresses) {
       try {
-        parsedVaultAddresses = Array.isArray(vaultAddresses) 
-          ? vaultAddresses 
+        parsedVaultAddresses = Array.isArray(vaultAddresses)
+          ? vaultAddresses
           : JSON.parse(vaultAddresses);
       } catch (e) {
         return res.status(400).json({

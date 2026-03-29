@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const vaultRegistryService = require('../services/vaultRegistryService');
 const Sentry = require('@sentry/node');
+const { applyPrivacyMasking } = require('../utils/privacyMasking');
+const authService = require('../services/authService');
 
 /**
  * @swagger
@@ -203,7 +205,7 @@ router.get('/vaults/by-creator/:creatorAddress', async (req, res) => {
 router.get('/vaults/search', async (req, res) => {
   try {
     const { projectName } = req.query;
-    
+
     if (!projectName || projectName.trim().length < 2) {
       return res.status(400).json({
         success: false,
@@ -324,17 +326,22 @@ router.get('/vaults', async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.get('/vaults/:contractId', async (req, res) => {
+router.get('/vaults/:contractId', authService.authenticate(false), async (req, res) => {
   try {
     const { contractId } = req.params;
-    
-    const { VaultRegistry } = require('../models');
+
+    const { VaultRegistry, Vault, Beneficiary } = require('../models');
     const vault = await VaultRegistry.findOne({
       where: { contract_id: contractId },
       include: [{
-        model: require('../models').Vault,
+        model: Vault,
         as: 'vaultDetails',
-        required: false
+        required: false,
+        include: [{
+          model: Beneficiary,
+          as: 'beneficiaries',
+          required: false
+        }]
       }]
     });
 
@@ -345,9 +352,18 @@ router.get('/vaults/:contractId', async (req, res) => {
       });
     }
 
+    // Get user information from request (if available)
+    const user = req.user || null;
+
+    // Apply privacy masking if vault has privacy mode enabled
+    let responseData = vault;
+    if (vault.vaultDetails && vault.vaultDetails.privacy_mode_enabled) {
+      responseData = applyPrivacyMasking(vault, user);
+    }
+
     res.json({
       success: true,
-      data: vault
+      data: responseData
     });
   } catch (error) {
     console.error('Error in get_vault_by_id:', error);
@@ -400,7 +416,7 @@ router.get('/vaults/:contractId', async (req, res) => {
 router.get('/stats', async (req, res) => {
   try {
     const { VaultRegistry, sequelize } = require('../models');
-    
+
     // Get various statistics
     const [
       totalVaults,
@@ -411,7 +427,7 @@ router.get('/stats', async (req, res) => {
     ] = await Promise.all([
       VaultRegistry.count(),
       VaultRegistry.count({ where: { is_active: true } }),
-      VaultRegistry.count({ 
+      VaultRegistry.count({
         distinct: true,
         col: 'creator_address'
       }),

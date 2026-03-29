@@ -108,6 +108,17 @@ const Vault = sequelize.define('Vault', {
     allowNull: false,
     comment: 'Whether this vault has been blacklisted due to integrity failure',
   },
+  privacy_mode_enabled: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: false,
+    comment: 'Whether privacy mode is enabled for masking token amounts',
+  },
+  privacy_metadata: {
+    type: DataTypes.JSON,
+    allowNull: true,
+    comment: 'Additional privacy settings and metadata for masking configuration',
+  },
   created_at: {
 
     type: DataTypes.DATE,
