@@ -35,6 +35,7 @@ const ContractUpgradeAuditLog = require("./contractUpgradeAuditLog");
 const CertifiedBuild = require("./certifiedBuild");
 const ConversionEvent = require("./conversionEvent");
 const MilestoneCelebrationWebhook = require("./milestoneCelebrationWebhook");
+const LoyaltyBadge = require("./loyaltyBadge");
 
 const { Token, initTokenModel } = require("./token");
 const {
@@ -84,6 +85,7 @@ const models = {
   CertifiedBuild,
   ConversionEvent,
   MilestoneCelebrationWebhook,
+  LoyaltyBadge,
   sequelize,
 };
 
