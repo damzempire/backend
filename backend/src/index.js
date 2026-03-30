@@ -35,6 +35,10 @@ const PORT = process.env.PORT || 4000;
 
 const httpServer = http.createServer(app);
 
+// Initialize Vesting Update WebSocket Server
+const VestingUpdateWebSocket = require('./websocket/vesting-update.websocket');
+const vestingUpdateWebSocket = new VestingUpdateWebSocket(httpServer);
+
 // Sentry request handler must be the first middleware (only if Sentry is properly configured)
 if (process.env.SENTRY_DSN && Sentry.Handlers) {
   app.use(Sentry.Handlers.requestHandler());
@@ -49,6 +53,14 @@ app.use(tracingMiddleware);
 app.use(cors());
 app.use(express.json());
 app.use(require("cookie-parser")());
+
+// Record request start time for response time tracking
+const { recordRequestStart } = require('./middleware/partnerRateLimit.middleware');
+app.use(recordRequestStart);
+
+// Apply partner rate limiting (before standard rate limiting)
+const { partnerRateLimitMiddleware } = require('./middleware/partnerRateLimit.middleware');
+app.use('/api', partnerRateLimitMiddleware);
 
 // Apply wallet-based rate limiting to all API routes
 app.use("/api", walletRateLimitMiddleware);
@@ -457,6 +469,15 @@ app.use("/api/correlation", correlationRoutes);
 
 // Mount vesting-to-grant-stream integration routes
 app.use("/api", futureLienRoutes);
+
+// Mount contract verification routes (prevent impersonation scams)
+app.use("/api/contract-verification", require('./routes/contractVerification'));
+
+// Mount batch claims routes (enterprise payroll optimization)
+app.use("/api/batch-claims", require('./routes/batchClaims'));
+
+// Mount partner management routes (institutional partner API access)
+app.use("/api/partners", require('./routes/partnerManagement'));
 
 // Historical price tracking job management endpoints
 app.post("/api/admin/jobs/historical-prices/start", async (req, res) => {
