@@ -1,0 +1,25 @@
+{
+  "_comment": "Test keypairs for the Stellar Quickstart standalone network. NEVER use on mainnet.",
+  "admin": {
+    "address": "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN",
+    "secret": "SB3KJLX6RBUKWBSMJKYJQYXJH65VJZIKQSXQK6K5CGFBZQJDNIPWVML",
+    "role": "admin"
+  },
+  "beneficiary": {
+    "address": "GBXGQJWVLWOYHFLZTKAQGE3GYKI1KNNBNSFZL2LT9KCD4NZNEFX7Y6Z",
+    "secret": "SCF6JXTVGR2MVYIKPJK3QOHHTYSVR4V7XJNMR3WNKUFLZZ2T5A2C5WD",
+    "role": "beneficiary"
+  },
+  "vault": {
+    "address": "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGPZC5T32SFNWZPFV3WT4Q",
+    "tokenAddress": "GDFOHLMYCXVZD2CDXZLMTE6LI45MNTN5XMFFAVBVTJ5VHPQIZGFGFMH",
+    "name": "E2E Test Vault",
+    "totalAmount": 10000,
+    "allocationPerBeneficiary": 1000
+  },
+  "vesting": {
+    "cliffSeconds": 5,
+    "vestingDurationSeconds": 30,
+    "totalAmount": 1000
+  }
+}
