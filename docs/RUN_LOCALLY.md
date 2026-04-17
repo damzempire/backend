@@ -139,6 +139,12 @@ curl "http://localhost:3000/api/claims/0x123456789012345678901234567890123456789
 - Change PORT in `.env` if 3000 is already in use
 - Ensure no other application is using the same port
 
+### Windows Path & Compilation Issues
+If you are developing on Windows and the commands `npm` or `stellar` are not recognized, or if contract compilation fails:
+1. **Add to PATH:** Ensure `C:\Program Files\nodejs\` and `%USERPROFILE%\.cargo\bin` are in your System Environment Variables.
+2. **Visual Studio:** Ensure the **"Desktop development with C++"** workload is installed in the Visual Studio Installer.
+3. **PowerShell:** If you get execution policy errors, run: `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`.
+
 ## Development Workflow
 
 ### Making Changes

@@ -28,6 +28,13 @@ npm start
 ```
 See `docs/RUN_LOCALLY.md` for detailed setup instructions.
 
+### Windows Setup Note
+If you are developing on Windows, ensure that **Node.js** and **Cargo** bin directories are in your System PATH:
+- **Node.js:** `C:\Program Files\nodejs\`
+- **Cargo:** `%USERPROFILE%\.cargo\bin`
+
+This allows you to run `npm` and `stellar` from any terminal. If compilation fails, ensure the **"Desktop development with C++"** workload is installed in Visual Studio.
+
 ## Documentation Highlights
 - [Architecture Overview](docs/ARCHITECTURE.md)
 - [API Reference](backend/API_DOCUMENTATION.md)
