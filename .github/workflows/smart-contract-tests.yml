@@ -21,19 +21,23 @@ jobs:
           override: true
           
       - name: Cache Rust dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            contracts/target
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            contracts/target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
             
       - name: Install Stellar CLI
         run: |
-          curl -fsSL https://github.com/stellar/stellar-cli/raw/main/install.sh | sh
+          if ! command -v stellar &> /dev/null; then
+            cargo install --locked stellar-cli
+          fi
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           # Ensure stellar is the name used if the script installs it as stellar
           sudo cp $HOME/.cargo/bin/stellar /usr/local/bin/soroban || true
@@ -136,8 +140,9 @@ jobs:
       - name: Install Stellar CLI
         working-directory: ./backend
         run: |
-          npm ci
-          curl -fsSL https://github.com/stellar/stellar-cli/raw/main/install.sh | sh
+          if ! command -v stellar &> /dev/null; then
+            cargo install --locked stellar-cli
+          fi
           sudo cp $HOME/.cargo/bin/stellar /usr/local/bin/soroban || true
           sudo cp $HOME/.cargo/bin/stellar /usr/local/bin/stellar || true
           
