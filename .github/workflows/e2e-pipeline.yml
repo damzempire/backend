@@ -32,7 +32,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: '18'
+  NODE_VERSION: '20'
   RUST_TOOLCHAIN: stable
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -161,9 +161,11 @@ jobs:
 
       - name: Install Stellar CLI
         run: |
-          cargo install --locked stellar-cli --features opt 2>/dev/null || \
-          cargo install stellar-cli 2>/dev/null || \
-          echo "Stellar CLI install skipped (pre-built not available)"
+          curl -fsSL https://github.com/stellar/stellar-cli/raw/main/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          # Ensure stellar is the name used if the script installs it as stellar
+          sudo cp $HOME/.cargo/bin/stellar /usr/local/bin/soroban || true
+          sudo cp $HOME/.cargo/bin/stellar /usr/local/bin/stellar || true
 
       - name: Build vesting-vault contract
         run: |
