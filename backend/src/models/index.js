@@ -96,8 +96,6 @@ const models = {
   LienMilestone,
   DAOProposal,
   DAOVote,
-  ContractUpgradeSignature,
-  ContractUpgradeAuditLog,
   sequelize,
 };
 

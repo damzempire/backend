@@ -174,60 +174,12 @@ const historicalPriceTrackingJob = require("./jobs/historicalPriceTrackingJob");
 const integrityMonitoringJob = require("./jobs/integrityMonitoringJob");
 const vaultRegistryIndexingJob = require("./jobs/vaultRegistryIndexingJob");
 const stellarPathPaymentListener = require("./services/stellarPathPaymentListener");
-const batchRevocationService = require("./services/batchRevocationService");
 
-const KycStatus = require("./KycStatus");
-const KycNotification = require("./KycNotification");
-const ContractUpgradeProposal = require("./contractUpgradeProposal");
-const ContractUpgradeSignature = require("./contractUpgradeSignature");
-const ContractUpgradeAuditLog = require("./contractUpgradeAuditLog");
-const CertifiedBuild = require("./certifiedBuild");
-const ConversionEvent = require("./conversionEvent");
-const MilestoneCelebrationWebhook = require("./milestoneCelebrationWebhook");
-const {
-  Token,
-  initTokenModel
-} = require("./token");
+const { Token, initTokenModel } = models; // models already has these
+// Note: models/index.js already calls initTokenModel(sequelize)
 
-const models = {
-  ClaimsHistory,
-  Vault,
-  SubSchedule,
-  TVL,
-  Beneficiary,
-  Organization,
-  Notification,
-  RefreshToken,
-  RevocationProposal,
-  RevocationSignature,
-  MultiSigConfig,
-  DividendRound,
-  DividendDistribution,
-  DividendSnapshot,
-  DeviceToken,
-  VaultLegalDocument,
-  VaultLiquidityAlert,
-  AnnualVestingStatement,
-  VestingMilestone,
-  HistoricalTokenPrice,
-  HistoricalTVL,
-  CostBasisReport,
-  AuditorToken,
-  VaultRegistry,
-  Rule144Compliance,
-  TaxCalculation,
-  TaxJurisdiction,
-  KycStatus,
-  KycNotification,
-  ContractUpgradeProposal,
-  ContractUpgradeSignature,
-  ContractUpgradeAuditLog,
-  CertifiedBuild,
-  ConversionEvent,
-  MilestoneCelebrationWebhook,
-  Token,
-  sequelize
-}; initTokenModel
+// All models are already initialized and exported via require("./models")
+const analyticsRoutes = require("./routes/analyticsRoutes");
 
 // Import webhooks routes
 const webhooksRoutes = require("./routes/webhooks");
