@@ -36,7 +36,7 @@ jobs:
       - name: Install Stellar CLI
         run: |
           if ! command -v stellar &> /dev/null; then
-            sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+            sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config libudev-dev
             cargo install --locked stellar-cli
           fi
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
