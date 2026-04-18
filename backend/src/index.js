@@ -35,9 +35,9 @@ const PORT = process.env.PORT || 4000;
 
 const httpServer = http.createServer(app);
 
-// Initialize Vesting Update WebSocket Server
-const VestingUpdateWebSocket = require('./websocket/vesting-update.websocket');
-const vestingUpdateWebSocket = new VestingUpdateWebSocket(httpServer);
+// Initialize Vesting Update WebSocket Server (Deferred to startServer)
+// const VestingUpdateWebSocket = require('./websocket/vesting-update.websocket');
+// const vestingUpdateWebSocket = new VestingUpdateWebSocket(httpServer);
 
 // Sentry request handler must be the first middleware (only if Sentry is properly configured)
 if (process.env.SENTRY_DSN && Sentry.Handlers) {
@@ -174,6 +174,7 @@ const historicalPriceTrackingJob = require("./jobs/historicalPriceTrackingJob");
 const integrityMonitoringJob = require("./jobs/integrityMonitoringJob");
 const vaultRegistryIndexingJob = require("./jobs/vaultRegistryIndexingJob");
 const stellarPathPaymentListener = require("./services/stellarPathPaymentListener");
+const kycExpirationWorker = require("./jobs/kycExpirationWorker");
 
 const { Token, initTokenModel } = models; // models already has these
 // Note: models/index.js already calls initTokenModel(sequelize)
@@ -2259,6 +2260,16 @@ const startServer = async () => {
 
     await sequelize.sync();
     console.log("Database synchronized successfully.");
+
+    // Initialize Vesting Update WebSocket Server AFTER database is ready
+    try {
+      const VestingUpdateWebSocket = require('./websocket/vesting-update.websocket');
+      const vestingUpdateWebSocket = new VestingUpdateWebSocket(httpServer);
+      console.log('WebSocket server initialized successfully.');
+    } catch (wsError) {
+      console.error('Failed to initialize WebSocket:', wsError);
+      console.log('Continuing with REST API only...');
+    }
 
     // Initialize Redis Cache
     try {
