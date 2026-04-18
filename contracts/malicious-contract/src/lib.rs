@@ -1,5 +1,5 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol, panic_with_error};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -39,7 +39,7 @@ impl MaliciousContract {
         
         // Try to call claim() again while inside the original claim() call
         // This should fail due to reentrancy protection
-        let result = env.try_invoke_contract::<i128>(
+        let result = env.try_invoke_contract::<i128, soroban_sdk::Error>(
             &state.vault_contract,
             &Symbol::new(&env, "claim"),
             (state.vault_id.clone(),)
@@ -66,7 +66,7 @@ impl MaliciousContract {
         state.attack_count += 1;
         
         // Try to call revoke() while inside the original claim() call
-        let result = env.try_invoke_contract::<()>(
+        let result = env.try_invoke_contract::<(), soroban_sdk::Error>(
             &state.vault_contract,
             &Symbol::new(&env, "revoke"),
             (state.vault_id.clone(),)
@@ -93,7 +93,7 @@ impl MaliciousContract {
         state.attack_count += 1;
         
         // Try to call create_vault() while inside the original claim() call
-        let result = env.try_invoke_contract::<Address>(
+        let result = env.try_invoke_contract::<Address, soroban_sdk::Error>(
             &state.vault_contract,
             &Symbol::new(&env, "create_vault"),
             (
