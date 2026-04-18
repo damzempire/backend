@@ -20,15 +20,17 @@ class CostBasisCalculationService {
    */
   async calculateCostBasis(userAddress, assetCode, method = this.fifoMethod) {
     try {
+      const whereClause = { user_address: userAddress };
+      if (assetCode) {
+        whereClause[Op.or] = [
+          { source_asset_code: assetCode },
+          { destination_asset_code: assetCode }
+        ];
+      }
+
       // Get all conversion events for this user and asset
       const conversionEvents = await ConversionEvent.findAll({
-        where: {
-          user_address: userAddress,
-          [Op.or]: [
-            { source_asset_code: assetCode },
-            { destination_asset_code: assetCode }
-          ]
-        },
+        where: whereClause,
         order: [['transaction_timestamp', 'ASC']],
         include: [
           {
@@ -74,7 +76,7 @@ class CostBasisCalculationService {
             totalAcquired: holdings.reduce((sum, h) => sum + parseFloat(h.totalAcquired), 0),
             totalCostBasis: holdings.reduce((sum, h) => sum + parseFloat(h.totalCostBasis), 0),
             currentHolding: currentPosition.amount,
-            averageCostBasis: holdings.length > 0 ? 
+            averageCostBasis: holdings.length > 0 ?
               holdings.reduce((sum, h) => sum + parseFloat(h.totalCostBasis), 0) / holdings.length : 0,
             unrealizedGain: unrealized.totalGain,
             realizedGain: realized.totalGain,
@@ -106,7 +108,7 @@ class CostBasisCalculationService {
       if (!claim.token_address || !claim.amount_claimed) continue;
 
       const tokenCode = this.extractAssetCode(claim.token_address);
-      if (tokenCode !== assetCode) continue;
+      if (assetCode && tokenCode !== assetCode) continue;
 
       if (!assetHoldings[tokenCode]) {
         assetHoldings[tokenCode] = [];
@@ -125,16 +127,16 @@ class CostBasisCalculationService {
 
     // Process conversion events (acquisitions and disposals)
     for (const conversion of conversionEvents) {
-      const isAcquisition = conversion.destination_asset_code === assetCode;
-      const isDisposal = conversion.source_asset_code === assetCode;
+      const destCode = conversion.destination_asset_code;
+      const sourceCode = conversion.source_asset_code;
 
-      if (isAcquisition) {
+      if (destCode && (!assetCode || destCode === assetCode)) {
         // User acquired this asset
-        if (!assetHoldings[assetCode]) {
-          assetHoldings[assetCode] = [];
+        if (!assetHoldings[destCode]) {
+          assetHoldings[destCode] = [];
         }
 
-        assetHoldings[assetCode].push({
+        assetHoldings[destCode].push({
           type: 'acquisition',
           timestamp: conversion.transaction_timestamp,
           amount: parseFloat(conversion.destination_amount),
@@ -148,13 +150,13 @@ class CostBasisCalculationService {
         });
       }
 
-      if (isDisposal) {
+      if (sourceCode && (!assetCode || sourceCode === assetCode)) {
         // User disposed of this asset
-        if (!assetHoldings[assetCode]) {
-          assetHoldings[assetCode] = [];
+        if (!assetHoldings[sourceCode]) {
+          assetHoldings[sourceCode] = [];
         }
 
-        assetHoldings[assetCode].push({
+        assetHoldings[sourceCode].push({
           type: 'disposal',
           timestamp: conversion.transaction_timestamp,
           amount: parseFloat(conversion.source_amount),
@@ -171,7 +173,7 @@ class CostBasisCalculationService {
     // Calculate holdings based on method
     for (const [code, events] of Object.entries(assetHoldings)) {
       events.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-      
+
       let calculatedHoldings;
       switch (method) {
         case this.fifoMethod:
@@ -350,6 +352,19 @@ class CostBasisCalculationService {
             holdingPeriod: this.calculateHoldingPeriod(nextAcquisition.timestamp, event.timestamp)
           });
         }
+
+        if (remainingAmount > 0) {
+          holdings.push({
+            type: 'disposal',
+            disposalTransactionId: event.transactionId,
+            amountDisposed: remainingAmount,
+            costBasis: 0,
+            proceeds: remainingAmount * event.price,
+            gain: remainingAmount * event.price,
+            disposalDate: event.timestamp,
+            note: 'Unmatched disposal - may indicate missing acquisition data'
+          });
+        }
       }
     }
 
@@ -385,37 +400,52 @@ class CostBasisCalculationService {
     let totalCostBasis = 0;
     let totalDisposed = 0;
 
-    // Separate acquisitions and disposals
-    const acquisitions = events.filter(e => e.type === 'acquisition');
-    const disposals = events.filter(e => e.type === 'disposal');
+    let currentAmount = 0;
+    let currentTotalCost = 0;
 
-    // Calculate totals
-    for (const acquisition of acquisitions) {
-      totalAcquired += acquisition.amount;
-      totalCostBasis += acquisition.costBasis;
+    for (const event of events) {
+      if (event.type === 'acquisition') {
+        currentAmount += event.amount;
+        currentTotalCost += event.costBasis;
+        totalAcquired += event.amount;
+        totalCostBasis += event.costBasis;
+      } else if (event.type === 'disposal') {
+        const averageCost = currentAmount > 0 ? currentTotalCost / currentAmount : 0;
+        const costBasisForDisposal = event.amount * averageCost;
+
+        currentAmount -= event.amount;
+        currentTotalCost -= costBasisForDisposal;
+        totalDisposed += event.amount;
+
+        holdings.push({
+          type: 'disposal',
+          disposalTransactionId: event.transactionId,
+          amountDisposed: event.amount,
+          costBasis: costBasisForDisposal,
+          proceeds: event.amount * event.price,
+          gain: (event.amount * event.price) - costBasisForDisposal,
+          disposalDate: event.timestamp
+        });
+      }
     }
 
-    for (const disposal of disposals) {
-      totalDisposed += disposal.amount;
-    }
-
-    // Calculate average cost basis
-    const averageCostBasis = totalAcquired > 0 ? totalCostBasis / totalAcquired : 0;
-    const currentHolding = totalAcquired - totalDisposed;
-
-    // Create holding record with average cost basis
-    if (currentHolding > 0) {
+    if (currentAmount > 0) {
+      const averageCostBasis = currentAmount > 0 ? currentTotalCost / currentAmount : 0;
       holdings.push({
         type: 'holding',
-        amount: currentHolding,
-        costBasis: currentHolding * averageCostBasis,
+        amount: currentAmount,
+        costBasis: currentTotalCost,
         averageCostBasis: averageCostBasis,
         totalAcquired,
         totalCostBasis
       });
     }
 
-    return holdings;
+    return holdings.map(h => ({
+      ...h,
+      totalAcquired,
+      totalCostBasis: totalAcquired > 0 ? totalCostBasis / totalAcquired : 0
+    }));
   }
 
   /**
@@ -430,7 +460,7 @@ class CostBasisCalculationService {
       // Get current balance from Stellar (or cache)
       // This would integrate with a balance service
       const currentBalance = await this.getCurrentBalance(userAddress, assetCode);
-      
+
       const totalHeld = holdings
         .filter(h => h.type === 'holding')
         .reduce((sum, h) => sum + parseFloat(h.amount || 0), 0);
@@ -465,7 +495,7 @@ class CostBasisCalculationService {
     try {
       const currentPrice = await this.getCurrentPrice(currentPosition.assetCode);
       const holdingRecords = holdings.filter(h => h.type === 'holding');
-      
+
       let totalCostBasis = 0;
       let totalAmount = 0;
 
@@ -474,7 +504,7 @@ class CostBasisCalculationService {
         totalAmount += parseFloat(holding.amount || 0);
       }
 
-      const currentValue = currentPosition.currentBalance * currentPrice;
+      const currentValue = totalAmount * currentPrice;
       const totalGain = currentValue - totalCostBasis;
       const gainPercentage = totalCostBasis > 0 ? (totalGain / totalCostBasis) * 100 : 0;
 
@@ -510,7 +540,7 @@ class CostBasisCalculationService {
    */
   calculateRealizedGains(holdings, conversionEvents) {
     const disposals = holdings.filter(h => h.type === 'disposal');
-    
+
     let totalRealizedGain = 0;
     let totalRealizedLoss = 0;
     let shortTermGains = 0;
@@ -518,12 +548,12 @@ class CostBasisCalculationService {
 
     for (const disposal of disposals) {
       const gain = parseFloat(disposal.gain || 0);
-      
+
       if (gain > 0) {
         totalRealizedGain += gain;
-        
+
         // Classify as short-term or long-term (less than 1 year = short-term)
-        const holdingDays = this.calculateHoldingPeriod(disposal.acquisitionDate, disposal.disposalDate);
+        const holdingDays = disposal.acquisitionDate ? this.calculateHoldingPeriod(disposal.acquisitionDate, disposal.disposalDate) : 0;
         if (holdingDays < 365) {
           shortTermGains += gain;
         } else {
@@ -556,13 +586,13 @@ class CostBasisCalculationService {
       // For now, return a placeholder
       const StellarSdk = require('stellar-sdk');
       const server = new StellarSdk.Server(process.env.STELLAR_HORIZON_URL || 'https://horizon.stellar.org');
-      
+
       const account = await server.loadAccount(userAddress);
-      const balance = account.balances.find(b => 
-        b.asset_code === assetCode && 
+      const balance = account.balances.find(b =>
+        b.asset_code === assetCode &&
         (b.asset_issuer === null || b.asset_issuer === undefined)
       );
-      
+
       return balance ? parseFloat(balance.balance) : 0;
     } catch (error) {
       console.error('Error getting current balance:', error);
@@ -581,7 +611,7 @@ class CostBasisCalculationService {
       // For now, return a placeholder
       if (assetCode === 'USDC') return 1.0; // USDC pegged to USD
       if (assetCode === 'XLM') return 0.1; // Example price
-      
+
       // For other assets, fetch from price oracle
       return 1.0; // Placeholder
     } catch (error) {
@@ -639,7 +669,7 @@ class CostBasisCalculationService {
 
       // Calculate cost basis for the year
       const costBasisResult = await this.calculateCostBasis(userAddress, null, this.fifoMethod);
-      
+
       // Filter events for tax year
       const yearEvents = costBasisResult.data.holdings.filter(h => {
         const eventDate = new Date(h.acquisitionDate || h.disposalDate);
@@ -651,7 +681,7 @@ class CostBasisCalculationService {
       const shortTermGains = disposals
         .filter(d => this.calculateHoldingPeriod(d.acquisitionDate, d.disposalDate) < 365)
         .reduce((sum, d) => sum + parseFloat(d.gain || 0), 0);
-      
+
       const longTermGains = disposals
         .filter(d => this.calculateHoldingPeriod(d.acquisitionDate, d.disposalDate) >= 365)
         .reduce((sum, d) => sum + parseFloat(d.gain || 0), 0);
