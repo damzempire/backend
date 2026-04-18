@@ -10,12 +10,6 @@
     "test:watch": "cross-env NODE_ENV=test jest --watch",
     "test:coverage": "cross-env NODE_ENV=test jest --coverage --forceExit"
   },
-  "jest": {
-    "testTimeout": 30000,
-    "setupFilesAfterEnv": [
-      "<rootDir>/test/setupOpenApi.js"
-    ]
-  },
   "dependencies": {
     "@apollo/server": "^4.9.5",
     "@graphql-tools/schema": "^10.0.2",

@@ -116,6 +116,10 @@ describe('Batch Revocation Service', () => {
         treasuryAddress,
       });
 
+      if (!result) {
+        throw new Error('Batch revocation failed - no result returned');
+      }
+
       expect(result.success).toBe(true);
       expect(result.beneficiaries_revoked).toBe(2);
       expect(result.results).toHaveLength(2);
@@ -142,6 +146,10 @@ describe('Batch Revocation Service', () => {
         reason: 'performance_based_termination',
         treasuryAddress,
       });
+
+      if (!result) {
+        throw new Error('Batch revocation failed - no result returned');
+      }
 
       expect(parseFloat(result.total_unvested_returned)).toBeGreaterThan(0);
       
@@ -195,6 +203,10 @@ describe('Batch Revocation Service', () => {
         adminAddress,
         reason: 'resignation',
       });
+
+      if (!result) {
+        throw new Error('Batch revocation failed - no result returned');
+      }
 
       expect(result.beneficiaries_revoked).toBe(1);
       
