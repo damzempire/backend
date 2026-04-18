@@ -142,6 +142,7 @@ jobs:
         working-directory: ./backend
         run: |
           if ! command -v stellar &> /dev/null; then
+            sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config libudev-dev
             cargo install --locked stellar-cli
           fi
           sudo cp $HOME/.cargo/bin/stellar /usr/local/bin/soroban || true
