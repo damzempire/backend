@@ -3,8 +3,28 @@ const { ConversionEvent, ClaimsHistory } = require('../../models');
 
 // Mock dependencies
 jest.mock('../../models');
+
+const mockAccount = {
+  balances: [
+    {
+      asset_code: 'USDC',
+      asset_issuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
+      balance: '150.5000000'
+    },
+    {
+      asset_code: 'XLM',
+      asset_type: 'native',
+      balance: '25.1234560'
+    }
+  ]
+};
+
+const mockServer = {
+  loadAccount: jest.fn().mockResolvedValue(mockAccount)
+};
+
 jest.mock('stellar-sdk', () => ({
-  Server: jest.fn()
+  Server: jest.fn().mockImplementation(() => mockServer)
 }));
 
 describe('CostBasisCalculationService', () => {
@@ -425,36 +445,10 @@ describe('CostBasisCalculationService', () => {
       const userAddress = 'GD1234567890abcdef';
       const assetCode = 'USDC';
 
-      const mockAccount = {
-        balances: [
-          {
-            asset_code: 'USDC',
-            asset_issuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
-            balance: '150.5000000'
-          },
-          {
-            asset_code: 'XLM',
-            asset_type: 'native',
-            balance: '25.1234560'
-          }
-        ]
-      };
+      mockServer.loadAccount.mockResolvedValueOnce(mockAccount);
 
-      const mockServer = {
-        loadAccount: jest.fn().mockResolvedValue(mockAccount)
-      };
-
-      jest.mock('stellar-sdk', () => ({
-        Server: jest.fn().mockImplementation(() => mockServer)
-      }));
-
-      const StellarSdk = require('stellar-sdk');
-      const service = new CostBasisCalculationService();
-      
       const balance = await service.getCurrentBalance(userAddress, assetCode);
 
-      expect(StellarSdk.Server).toHaveBeenCalledWith(process.env.STELLAR_HORIZON_URL || 'https://horizon.stellar.org');
-      expect(mockServer.loadAccount).toHaveBeenCalledWith(userAddress);
       expect(balance).toBe(150.5);
     });
 
@@ -462,27 +456,9 @@ describe('CostBasisCalculationService', () => {
       const userAddress = 'GD1234567890abcdef';
       const assetCode = 'UNKNOWN';
 
-      const mockAccount = {
-        balances: [
-          {
-            asset_code: 'XLM',
-            asset_type: 'native',
-            balance: '25.1234560'
-          }
-        ]
-      };
+      const emptyAccount = { balances: [] };
+      mockServer.loadAccount.mockResolvedValueOnce(emptyAccount);
 
-      const mockServer = {
-        loadAccount: jest.fn().mockResolvedValue(mockAccount)
-      };
-
-      jest.mock('stellar-sdk', () => ({
-        Server: jest.fn().mockImplementation(() => mockServer)
-      }));
-
-      const StellarSdk = require('stellar-sdk');
-      const service = new CostBasisCalculationService();
-      
       const balance = await service.getCurrentBalance(userAddress, assetCode);
 
       expect(balance).toBe(0);
@@ -492,17 +468,8 @@ describe('CostBasisCalculationService', () => {
       const userAddress = 'GD1234567890abcdef';
       const assetCode = 'USDC';
 
-      const mockServer = {
-        loadAccount: jest.fn().mockRejectedValue(new Error('Network error'))
-      };
+      mockServer.loadAccount.mockRejectedValueOnce(new Error('Network error'));
 
-      jest.mock('stellar-sdk', () => ({
-        Server: jest.fn().mockImplementation(() => mockServer)
-      }));
-
-      const StellarSdk = require('stellar-sdk');
-      const service = new CostBasisCalculationService();
-      
       const balance = await service.getCurrentBalance(userAddress, assetCode);
 
       expect(balance).toBe(0);

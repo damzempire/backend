@@ -17,6 +17,15 @@ jest.mock('sequelize', () => {
       gt: jest.fn(),
       lt: jest.fn(),
       and: jest.fn()
+    },
+    DataTypes: {
+      UUID: 'UUID',
+      UUIDV4: 'UUIDV4',
+      STRING: 'STRING',
+      DECIMAL: 'DECIMAL',
+      DATE: 'DATE',
+      BIGINT: 'BIGINT',
+      NOW: 'NOW'
     }
   };
 });
