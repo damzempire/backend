@@ -6,6 +6,7 @@ const { rateLimit } = require("express-rate-limit");
 const {
   walletRateLimitMiddleware,
 } = require("./middleware/wallet-ratelimit.middleware");
+const SEP12Module = require("./modules/sep12-kyc/sep12.module");
 
 const Sentry = require("@sentry/node");
 const { nodeProfilingIntegration } = require("@sentry/profiling-node");
@@ -2260,6 +2261,17 @@ const startServer = async () => {
 
     await sequelize.sync();
     console.log("Database synchronized successfully.");
+
+    // Initialize SEP-12 KYC Module
+    try {
+      const sep12Module = new SEP12Module({ sequelize });
+      await sep12Module.initialize();
+      sep12Module.registerRoutes(app);
+      console.log('SEP-12 KYC Module initialized successfully.');
+    } catch (sep12Error) {
+      console.error('Failed to initialize SEP-12 KYC Module:', sep12Error);
+      console.log('Continuing without SEP-12 KYC functionality...');
+    }
 
     // Initialize Vesting Update WebSocket Server AFTER database is ready
     try {
