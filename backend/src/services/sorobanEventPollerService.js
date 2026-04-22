@@ -5,6 +5,7 @@ const Sentry = require('@sentry/node');
 const stellarIngestionService = require('./stellarIngestionService');
 const LedgerReorgDetector = require('./ledgerReorgDetector');
 const LedgerResyncService = require('./ledgerResyncService');
+const RpcQueueService = require('./rpcQueueService');
 
 class SorobanEventPollerService {
   constructor(options = {}) {
@@ -43,6 +44,14 @@ class SorobanEventPollerService {
       finalityThreshold: options.finalityThreshold || 32,
       resyncBatchSize: options.resyncBatchSize || 50,
       maxResyncDepth: options.maxResyncDepth || 1000
+    });
+
+    // Initialize RPC queue service for reliable RPC calls
+    this.rpcQueueService = new RpcQueueService({
+      maxRetries: options.rpcMaxRetries || 3,
+      retryDelay: options.rpcRetryDelay || 2000,
+      dlqMaxSize: options.dlqMaxSize || 1000,
+      priorityThreshold: options.priorityThreshold || 10
     });
   }
 
@@ -84,6 +93,10 @@ class SorobanEventPollerService {
     // Start reorg detector
     await this.reorgDetector.start();
     console.log('Ledger Reorg Detector started');
+    
+    // Start RPC queue service
+    await this.rpcQueueService.start();
+    console.log('RPC Queue Service started');
   }
 
   /**
@@ -108,6 +121,10 @@ class SorobanEventPollerService {
     // Stop reorg detector
     await this.reorgDetector.stop();
     console.log('Ledger Reorg Detector stopped');
+    
+    // Stop RPC queue service
+    await this.rpcQueueService.stop();
+    console.log('RPC Queue Service stopped');
   }
 
   /**
@@ -175,9 +192,9 @@ class SorobanEventPollerService {
   }
 
   /**
-   * Fetch events from a range of ledgers
-   * @param {number} startLedger - Start ledger sequence
-   * @param {number} endLedger - End ledger sequence
+   * Fetch events from a range of ledgers using RPC queue service
+   * @param {number} startLedger - Start ledger sequence (inclusive)
+   * @param {number} endLedger - End ledger sequence (inclusive)
    * @returns {Promise<Array>} Array of events
    */
   async fetchEventsInRange(startLedger, endLedger) {
@@ -189,13 +206,25 @@ class SorobanEventPollerService {
         filters.contractIds = this.contractAddresses;
       }
 
-      const response = await this.rpcClient.callWithRetry('getEvents', {
+      // Use RPC queue service for reliable fetching
+      const job = await this.rpcQueueService.addRpcJob('getEvents', {
         startLedger,
         endLedger,
         ...filters
+      }, {
+        priority: 'high', // Event fetching is high priority
+        source: 'soroban-event-poller',
+        timeout: 30000 // Longer timeout for batch operations
       });
 
-      return response.events || [];
+      // Wait for job completion
+      const result = await job.finished();
+      
+      if (result.success) {
+        return result.result.events || [];
+      } else {
+        throw new Error(`RPC job failed: ${result.error?.message || 'Unknown error'}`);
+      }
     } catch (error) {
       console.error(`Failed to fetch events for ledgers ${startLedger}-${endLedger}:`, error);
       throw error;
@@ -394,9 +423,9 @@ class SorobanEventPollerService {
 
   /**
    * Get service status
-   * @returns {Object} Service status information
+   * @returns {Promise<Object>} Service status information
    */
-  getStatus() {
+  async getStatus() {
     return {
       isRunning: this.isRunning,
       pollInterval: this.pollInterval,
@@ -406,7 +435,8 @@ class SorobanEventPollerService {
       lastPoll: this.lastPollTime,
       serviceName: this.serviceName,
       reorgDetector: this.reorgDetector.getStatus(),
-      resyncService: this.resyncService.getStatus()
+      resyncService: this.resyncService.getStatus(),
+      rpcQueueService: await this.rpcQueueService.getStats()
     };
   }
 
@@ -424,6 +454,14 @@ class SorobanEventPollerService {
    */
   getResyncService() {
     return this.resyncService;
+  }
+
+  /**
+   * Get RPC queue service instance
+   * @returns {RpcQueueService} RPC queue service
+   */
+  getRpcQueueService() {
+    return this.rpcQueueService;
   }
 
   /**
