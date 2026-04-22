@@ -435,6 +435,9 @@ app.use("/api/partners", require('./routes/partnerManagement'));
 // Mount Soroban events routes (event indexing and monitoring)
 app.use("/api/soroban-events", require('./routes/sorobanEvents'));
 
+// Mount ledger reorg management routes (reorg detection and resync)
+app.use("/api/ledger-reorg", require('./routes/ledgerReorg'));
+
 // Historical price tracking job management endpoints
 app.post("/api/admin/jobs/historical-prices/start", async (req, res) => {
   try {

@@ -3,6 +3,8 @@ const { SorobanEvent, IndexerState } = require('../models');
 const SorobanRpcClient = require('./sorobanRpcClient');
 const Sentry = require('@sentry/node');
 const stellarIngestionService = require('./stellarIngestionService');
+const LedgerReorgDetector = require('./ledgerReorgDetector');
+const LedgerResyncService = require('./ledgerResyncService');
 
 class SorobanEventPollerService {
   constructor(options = {}) {
@@ -29,6 +31,19 @@ class SorobanEventPollerService {
       VestingScheduleCreated: 'VestingScheduleCreated',
       TokensClaimed: 'TokensClaimed'
     };
+
+    // Initialize reorg detection and resync services
+    this.reorgDetector = new LedgerReorgDetector({
+      maxReorgDepth: options.maxReorgDepth || 100,
+      finalityThreshold: options.finalityThreshold || 32,
+      checkInterval: options.reorgCheckInterval || 60000
+    });
+
+    this.resyncService = new LedgerResyncService({
+      finalityThreshold: options.finalityThreshold || 32,
+      resyncBatchSize: options.resyncBatchSize || 50,
+      maxResyncDepth: options.maxResyncDepth || 1000
+    });
   }
 
   /**
@@ -65,6 +80,10 @@ class SorobanEventPollerService {
     }, this.pollInterval);
 
     console.log(`Soroban Event Poller Service started - polling every ${this.pollInterval/1000} seconds`);
+    
+    // Start reorg detector
+    await this.reorgDetector.start();
+    console.log('Ledger Reorg Detector started');
   }
 
   /**
@@ -85,6 +104,10 @@ class SorobanEventPollerService {
     }
 
     console.log('Soroban Event Poller Service stopped');
+    
+    // Stop reorg detector
+    await this.reorgDetector.stop();
+    console.log('Ledger Reorg Detector stopped');
   }
 
   /**
@@ -98,6 +121,15 @@ class SorobanEventPollerService {
     
     try {
       console.log(`[${pollId}] Starting event poll...`);
+      
+      // Check for reorgs before polling
+      if (this.reorgDetector.isRunning) {
+        const reorgCheck = await this.reorgDetector.triggerCheck();
+        if (reorgCheck.issues.length > 0) {
+          console.log(`[${pollId}] Reorg issues detected, skipping poll to allow handling`);
+          return;
+        }
+      }
       
       // Get last processed ledger
       const lastProcessedLedger = await this.getLastProcessedLedger();
@@ -372,8 +404,54 @@ class SorobanEventPollerService {
       contractAddresses: this.contractAddresses,
       uptime: this.isRunning ? Date.now() - this.startTime : 0,
       lastPoll: this.lastPollTime,
-      serviceName: this.serviceName
+      serviceName: this.serviceName,
+      reorgDetector: this.reorgDetector.getStatus(),
+      resyncService: this.resyncService.getStatus()
     };
+  }
+
+  /**
+   * Get reorg detector instance
+   * @returns {LedgerReorgDetector} Reorg detector service
+   */
+  getReorgDetector() {
+    return this.reorgDetector;
+  }
+
+  /**
+   * Get resync service instance
+   * @returns {LedgerResyncService} Resync service
+   */
+  getResyncService() {
+    return this.resyncService;
+  }
+
+  /**
+   * Trigger manual reorg check
+   */
+  async triggerReorgCheck() {
+    return this.reorgDetector.triggerCheck();
+  }
+
+  /**
+   * Perform full resync
+   */
+  async performFullResync() {
+    return this.resyncService.performFullResync();
+  }
+
+  /**
+   * Perform targeted resync
+   */
+  async performTargetedResync(startSequence, endSequence) {
+    return this.resyncService.performTargetedResync(startSequence, endSequence);
+  }
+
+  /**
+   * Validate ledger integrity
+   */
+  async validateLedgerIntegrity() {
+    return this.resyncService.validateLedgerIntegrity();
   }
 
   /**
