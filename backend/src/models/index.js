@@ -48,6 +48,7 @@ const {
   OrganizationWebhook,
   initOrganizationWebhookModel,
 } = require("./organizationWebhook");
+const ClaimWebhookDelivery = require("./claimWebhookDelivery");
 
 initTokenModel(sequelize);
 
@@ -84,6 +85,7 @@ const models = {
   AnnualVestingStatement,
   Token,
   OrganizationWebhook,
+  ClaimWebhookDelivery,
   VaultRegistry,
   ContractUpgradeProposal,
   ContractUpgradeSignature,

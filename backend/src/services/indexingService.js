@@ -7,6 +7,7 @@ const Sentry = require('@sentry/node');
 const ClaimCalculator = require('./claimCalculator');
 const { TokenType } = require('../models/vault');
 const { InsufficientBalanceError } = require('../errors/VaultErrors');
+const crypto = require('crypto');
 
 const EventEmitter = require('events');
 const claimEventEmitter = new EventEmitter();
@@ -59,7 +60,9 @@ class IndexingService {
       }
 
       // Emit internal claim event for WebSocket gateway
-      claimEventEmitter.emit('claim', claim.toJSON());
+      const confirmedClaimEvent = this.buildConfirmedClaimEvent(claim.toJSON(), claimData);
+      claimEventEmitter.emit('claim', confirmedClaimEvent);
+      claimEventEmitter.emit('tokensClaimed', confirmedClaimEvent);
 
       // Invalidate user portfolio cache after claim processing
       try {
@@ -70,26 +73,6 @@ class IndexingService {
         // Don't throw - cache invalidation failure shouldn't fail claim processing
       }
 
-      // Fire webhook POST for DAOs, but only if admin_address matches organization_id
-      const { OrganizationWebhook } = require('../models');
-      const { isAdminOfOrg } = require('../graphql/middleware/auth');
-      const axios = require('axios');
-      if (claim.organization_id && claim.admin_address) {
-        const isAdmin = await isAdminOfOrg(claim.admin_address, claim.organization_id);
-        if (isAdmin) {
-          const webhooks = await OrganizationWebhook.findAll({ where: { organization_id: claim.organization_id } });
-          for (const webhook of webhooks) {
-            try {
-              await axios.post(webhook.webhook_url, claim.toJSON());
-              console.log(`Webhook fired: ${webhook.webhook_url}`);
-            } catch (err) {
-              console.error(`Webhook failed: ${webhook.webhook_url}`, err);
-            }
-          }
-        } else {
-          console.warn('Webhook not fired: admin_address does not match organization_id');
-        }
-      }
       return claim;
     } catch (error) {
       console.error('Error processing claim:', error);
@@ -587,6 +570,34 @@ calculateSubScheduleReleasable(subSchedule, asOfDate = new Date()) {
   const releasable = totalVested - parseFloat(subSchedule.amount_released);
 
   return Math.max(0, releasable);
+}
+
+buildConfirmedClaimEvent(claimRecord, claimData = {}) {
+  const claimTimestamp = claimRecord.claim_timestamp || claimData.claim_timestamp || new Date().toISOString();
+  const eventId = crypto
+    .createHash('sha256')
+    .update(
+      [
+        claimRecord.transaction_hash,
+        claimRecord.user_address,
+        claimRecord.amount_claimed,
+        claimRecord.block_number,
+      ].join(':')
+    )
+    .digest('hex');
+
+  return {
+    ...claimRecord,
+    event_name: 'TokensClaimed',
+    event_id: eventId,
+    confirmed: true,
+    confirmed_at: new Date(claimTimestamp).toISOString(),
+    beneficiary_address: claimRecord.user_address,
+    amount: claimRecord.amount_claimed,
+    vault_address: claimData.vault_address || claimData.vaultAddress || null,
+    organization_id: claimData.organization_id || claimData.organizationId || null,
+    admin_address: claimData.admin_address || claimData.adminAddress || null,
+  };
 }
 }
 
