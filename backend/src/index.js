@@ -438,6 +438,9 @@ app.use("/api/soroban-events", require('./routes/sorobanEvents'));
 // Mount ledger reorg management routes (reorg detection and resync)
 app.use("/api/ledger-reorg", require('./routes/ledgerReorg'));
 
+// Mount vesting history routes (optimized PostgreSQL queries)
+app.use("/api/vesting-history", require('./routes/vestingHistory'));
+
 // Historical price tracking job management endpoints
 app.post("/api/admin/jobs/historical-prices/start", async (req, res) => {
   try {
