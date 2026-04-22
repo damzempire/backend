@@ -173,6 +173,7 @@ const vaultArchivalJob = require("./jobs/vaultArchivalJob");
 const historicalPriceTrackingJob = require("./jobs/historicalPriceTrackingJob");
 const integrityMonitoringJob = require("./jobs/integrityMonitoringJob");
 const vaultRegistryIndexingJob = require("./jobs/vaultRegistryIndexingJob");
+const vaultBalanceMonitoringJob = require("./jobs/vaultBalanceMonitoringJob");
 const stellarPathPaymentListener = require("./services/stellarPathPaymentListener");
 const kycExpirationWorker = require("./jobs/kycExpirationWorker");
 
@@ -2346,6 +2347,14 @@ const startServer = async () => {
       console.log("Vault Registry Indexing Job started successfully.");
     } catch (jobError) {
       console.error("Failed to initialize Vault Registry Indexing Job:", jobError);
+    }
+
+    // Initialize Vault Balance Monitoring Job
+    try {
+      vaultBalanceMonitoringJob.start();
+      console.log("Vault Balance Monitoring Job started successfully.");
+    } catch (jobError) {
+      console.error("Failed to initialize Vault Balance Monitoring Job:", jobError);
     }
 
     // Initialize Stellar Path Payment Listener
