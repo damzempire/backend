@@ -132,7 +132,7 @@ class VestingService {
    * @returns {Promise<SubSchedule>}
    */
   async processTopUp(topUpData) {
-    const { vault_address, vaultAddress, amount, transaction_hash, transactionHash, block_number, blockNumber, timestamp } = topUpData;
+    const { vault_address, vaultAddress, amount, transaction_hash, transactionHash, block_number, blockNumber, timestamp, event_index = 0 } = topUpData;
     const address = vault_address || vaultAddress;
     const txHash = transaction_hash || transactionHash;
     const blockNum = block_number || blockNumber;
@@ -162,21 +162,36 @@ class VestingService {
 
     const endTimestamp = new Date(vestingStartDate.getTime() + (vesting_dur || 0) * 1000);
 
-    const subSchedule = await SubSchedule.create({
-      vault_id: vault.id,
-      top_up_amount: String(amount),
-      cliff_duration: cliff_dur || 0,
-      cliff_date: cliffDate,
-      vesting_start_date: vestingStartDate,
-      vesting_duration: vesting_dur || 0,
-      start_timestamp: vestingStartDate,
-      end_timestamp: endTimestamp,
-      transaction_hash: txHash,
-      block_number: blockNum || 0,
-      amount_withdrawn: 0,
-      amount_released: 0,
-      is_active: true,
-    });
+    let subSchedule;
+    try {
+      subSchedule = await SubSchedule.create({
+        vault_id: vault.id,
+        top_up_amount: String(amount),
+        cliff_duration: cliff_dur || 0,
+        cliff_date: cliffDate,
+        vesting_start_date: vestingStartDate,
+        vesting_duration: vesting_dur || 0,
+        start_timestamp: vestingStartDate,
+        end_timestamp: endTimestamp,
+        transaction_hash: txHash,
+        event_index,
+        block_number: blockNum || 0,
+        amount_withdrawn: 0,
+        amount_released: 0,
+        is_active: true,
+      });
+    } catch (error) {
+      if (error.name === 'SequelizeUniqueConstraintError') {
+        const existing = await SubSchedule.findOne({
+          where: { transaction_hash: txHash, event_index }
+        });
+        if (existing) {
+          console.log(`Duplicate top-up detected: ${txHash}:${event_index}, returning existing record`);
+          return existing;
+        }
+      }
+      throw error;
+    }
 
     // Update vault total_amount
     const currentTotal = parseFloat(vault.total_amount) || 0;

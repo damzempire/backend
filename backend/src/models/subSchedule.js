@@ -81,6 +81,12 @@ const SubSchedule = sequelize.define('SubSchedule', {
     allowNull: true,
     comment: 'Ledger sequence number where this top-up was confirmed',
   },
+  event_index: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 0,
+    comment: 'Event index within the transaction for idempotency',
+  },
 }, {
   tableName: 'sub_schedules',
   timestamps: true,
@@ -90,7 +96,10 @@ const SubSchedule = sequelize.define('SubSchedule', {
     {
       fields: ['vault_id'],
     },
-
+    {
+      fields: ['transaction_hash', 'event_index'],
+      unique: true,
+    },
   ],
 });
 

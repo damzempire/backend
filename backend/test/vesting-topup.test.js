@@ -140,6 +140,36 @@ describe('Vesting Service - Top-up with Cliff Functionality', () => {
       expect(result.top_up_amount).toBe('200.0');
       expect(result.cliff_duration).toBe(172800);
     });
+
+    test('Should be idempotent when processing same top-up event twice', async () => {
+      const topUpData = {
+        vault_address: vaultAddress,
+        top_up_amount: '300.0',
+        transaction_hash: '0xduplicate1234567890abcdef1234567890abcdef1234567890abcdef123456',
+        event_index: 2,
+        block_number: 12346,
+        timestamp: new Date().toISOString(),
+        cliff_duration: 0,
+        vesting_duration: 86400,
+      };
+
+      const firstResult = await indexingService.instance.processTopUpEvent(topUpData);
+      expect(firstResult).toBeDefined();
+      expect(parseFloat(firstResult.top_up_amount)).toBe(300);
+      expect(firstResult.event_index).toBe(2);
+
+      // Process the same event again — should return the existing record without error
+      const secondResult = await indexingService.instance.processTopUpEvent(topUpData);
+      expect(secondResult).toBeDefined();
+      expect(secondResult.id).toBe(firstResult.id);
+      expect(parseFloat(secondResult.top_up_amount)).toBe(300);
+
+      // Verify only one sub-schedule was created in the database
+      const subSchedules = await sequelize.models.SubSchedule.findAll({
+        where: { transaction_hash: topUpData.transaction_hash, event_index: 2 }
+      });
+      expect(subSchedules.length).toBe(1);
+    });
  
     test('Should process release event correctly', async () => {
       // Wait for vesting to complete (simulate with past date)

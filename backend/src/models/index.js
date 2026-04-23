@@ -1,3 +1,25 @@
+const { sequelize } = require('../database/connection');
+
+const ClaimsHistory = require('./claimsHistory');
+const Vault = require('./vault');
+const SubSchedule = require('./subSchedule');
+const TVL = require('./tvl');
+const Beneficiary = require('./beneficiary');
+const Organization = require('./organization');
+const Notification = require('./notification');
+const RefreshToken = require('./refreshToken');
+const RevocationProposal = require('./revocationProposal');
+const RevocationSignature = require('./revocationSignature');
+const MultiSigConfig = require('./multiSigConfig');
+const DividendRound = require('./dividendRound');
+const DividendDistribution = require('./dividendDistribution');
+const DividendSnapshot = require('./dividendSnapshot');
+const DeviceToken = require('./deviceToken');
+const VaultLegalDocument = require('./vaultLegalDocument');
+const VaultLiquidityAlert = require('./vaultLiquidityAlert');
+
+const { Token, initTokenModel } = require('./token');
+const { OrganizationWebhook, initOrganizationWebhookModel } = require('./organizationWebhook');
 const { sequelize } = require("../database/connection");
 
 const ClaimsHistory = require("./claimsHistory");
@@ -51,7 +73,6 @@ const {
 const ClaimWebhookDelivery = require("./claimWebhookDelivery");
 
 initTokenModel(sequelize);
-
 initOrganizationWebhookModel(sequelize);
 
 const models = {
@@ -77,6 +98,8 @@ const models = {
   DividendRound,
   DividendDistribution,
   DividendSnapshot,
+  Token,
+  OrganizationWebhook,
   VestingMilestone,
   HistoricalTokenPrice,
   HistoricalTVL,
@@ -105,7 +128,6 @@ const models = {
 };
 
 // Setup associations
-
 Object.keys(models).forEach((modelName) => {
   if (models[modelName].associate) {
     models[modelName].associate(models);

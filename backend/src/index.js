@@ -1677,6 +1677,32 @@ app.get("/api/token/:address/distribution", async (req, res) => {
       where: {
         token_address: address,
         total_amount: {
+          [sequelize.Op.gt]: 0
+        }
+
+        ,const :dividendRound = await dividendService.createDividendRound(
+          tokenAddress,
+          totalAmount,
+          dividendToken,
+          vestedTreatment,
+          unvestedMultiplier,
+          createdBy
+        ),
+
+res,status(201).json({
+          success: true,
+          data: dividendRound
+        }),
+      } 
+,catch (error) {
+        console.error('Error creating dividend round:', error);
+        res.status(500).json({
+          success: false,
+          error: error.message
+        });
+      }
+    },
+  
           [sequelize.Op.gt]: 0,
         },
       },
@@ -2414,6 +2440,23 @@ const startServer = async () => {
     } catch (jobError) {
       console.error("Failed to initialize Vault Registry Indexing Job:", jobError);
     }
+    
+    // Start the HTTP server
+    httpServer.listen(PORT, () => {
+      console.log(`Server is running on port ${PORT}`);
+      console.log(`REST API available at: http://localhost:${PORT}`);
+      if (graphQLServer) {
+        console.log(`GraphQL API available at: http://localhost:${PORT}/graphql`);
+        });
+      } try 
+      catch (error) {
+        console.error('Unable to start server:', error);
+        process.exit(1);
+      }
+    };
+
+    startServer();
+    };
 
     // Initialize Vault Balance Monitoring Job
     try {
