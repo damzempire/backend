@@ -41,7 +41,7 @@ const DAOProposal = require("./daoProposal");
 const DAOVote = require("./daoVote");
 const ContractUpgradeSignature = require("./contractUpgradeSignature");
 const ContractUpgradeAuditLog = require("./contractUpgradeAuditLog");
-const SorobanEvent = require("./sorobanEvent");
+const VaultBalanceMonitorState = require("./vaultBalanceMonitorState");
 
 const { Token, initTokenModel } = require("./token");
 const {
@@ -88,6 +88,7 @@ const models = {
   ContractUpgradeProposal,
   ContractUpgradeSignature,
   ContractUpgradeAuditLog,
+  VaultBalanceMonitorState,
   CertifiedBuild,
   ConversionEvent,
   MilestoneCelebrationWebhook,
