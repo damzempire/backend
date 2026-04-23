@@ -7,6 +7,7 @@
 
 const axios = require('axios');
 const { BalanceQueryFailedError } = require('../errors/VaultErrors');
+const { executeRpcWithRetry } = require('../../../rpc-retry');
 
 class BalanceTracker {
   /**
@@ -15,6 +16,10 @@ class BalanceTracker {
    */
   constructor(rpcUrl = null) {
     this.rpcUrl = rpcUrl || process.env.STELLAR_RPC_URL;
+    const configuredTimeout = Number(process.env.BALANCE_TRACKER_RPC_TIMEOUT_MS || 10000);
+    this.rpcTimeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout > 0
+      ? configuredTimeout
+      : 10000;
     if (!this.rpcUrl) {
       throw new Error('STELLAR_RPC_URL environment variable is required');
     }
@@ -29,17 +34,20 @@ class BalanceTracker {
    */
   async getActualBalance(tokenAddress, vaultAddress) {
     try {
-      // Make RPC call to query balance
-      // This uses the Soroban RPC simulateTransaction endpoint
-      const response = await axios.post(this.rpcUrl, {
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'simulateTransaction',
-        params: {
-          transaction: this._buildBalanceQueryTransaction(tokenAddress, vaultAddress)
-        }
-      });
+      const rpcCall = () =>
+        axios.post(this.rpcUrl, {
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'simulateTransaction',
+          params: {
+            transaction: this._buildBalanceQueryTransaction(tokenAddress, vaultAddress),
+          },
+        }, {
+          timeout: this.rpcTimeoutMs,
+        });
 
+      const response = await executeRpcWithRetry(rpcCall, `getActualBalance for ${vaultAddress}`);
+      
       if (response.data.error) {
         throw new Error(response.data.error.message || 'RPC error');
       }

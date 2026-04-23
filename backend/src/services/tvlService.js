@@ -1,4 +1,4 @@
-const { Vault, TVL } = require('../models');
+const { Vault, TVL, HistoricalTVL } = require('../models');
 
 class TVLService {
   /**
@@ -22,6 +22,93 @@ class TVLService {
       };
     } catch (error) {
       console.error('Error calculating TVL:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create a historical TVL snapshot
+   * @param {Date} snapshotDate - Date for the snapshot (defaults to today)
+   * @returns {Promise<HistoricalTVL>} Created historical TVL record
+   */
+  async createHistoricalSnapshot(snapshotDate = new Date()) {
+    try {
+      const { totalValueLocked, activeVaultsCount } = await this.calculateTVL();
+      
+      // Get previous day's snapshot for change calculations
+      const yesterday = new Date(snapshotDate);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split('T')[0];
+      
+      const previousSnapshot = await HistoricalTVL.findOne({
+        where: { snapshot_date: yesterdayStr }
+      });
+      
+      let tvlChange24h = null;
+      let tvlChangePercentage24h = null;
+      
+      if (previousSnapshot) {
+        tvlChange24h = totalValueLocked - parseFloat(previousSnapshot.total_value_locked);
+        tvlChangePercentage24h = previousSnapshot.total_value_locked > 0 
+          ? (tvlChange24h / parseFloat(previousSnapshot.total_value_locked)) * 100 
+          : null;
+      }
+      
+      const snapshotDateStr = snapshotDate.toISOString().split('T')[0];
+      
+      // Check if snapshot already exists for this date
+      const existingSnapshot = await HistoricalTVL.findOne({
+        where: { snapshot_date: snapshotDateStr }
+      });
+      
+      if (existingSnapshot) {
+        // Update existing snapshot
+        await existingSnapshot.update({
+          total_value_locked: totalValueLocked,
+          active_vaults_count: activeVaultsCount,
+          tvl_change_24h: tvlChange24h,
+          tvl_change_percentage_24h: tvlChangePercentage24h,
+          snapshot_timestamp: new Date()
+        });
+        return existingSnapshot;
+      } else {
+        // Create new snapshot
+        return await HistoricalTVL.create({
+          snapshot_date: snapshotDateStr,
+          total_value_locked: totalValueLocked,
+          active_vaults_count: activeVaultsCount,
+          tvl_change_24h: tvlChange24h,
+          tvl_change_percentage_24h: tvlChangePercentage24h,
+          snapshot_timestamp: new Date()
+        });
+      }
+    } catch (error) {
+      console.error('Error creating historical TVL snapshot:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get historical TVL data for a date range
+   * @param {Date} startDate - Start date
+   * @param {Date} endDate - End date (defaults to today)
+   * @returns {Promise<Array>} Array of historical TVL records
+   */
+  async getHistoricalTVL(startDate, endDate = new Date()) {
+    try {
+      return await HistoricalTVL.findAll({
+        where: {
+          snapshot_date: {
+            [require('sequelize').Op.between]: [
+              startDate.toISOString().split('T')[0],
+              endDate.toISOString().split('T')[0]
+            ]
+          }
+        },
+        order: [['snapshot_date', 'ASC']]
+      });
+    } catch (error) {
+      console.error('Error getting historical TVL:', error);
       throw error;
     }
   }
@@ -52,6 +139,11 @@ class TVLService {
       }
 
       console.log(`TVL updated: ${totalValueLocked} across ${activeVaultsCount} vaults`);
+
+      // Create historical snapshot (don't await to avoid blocking)
+      this.createHistoricalSnapshot().catch(error => {
+        console.error('Error creating historical TVL snapshot:', error);
+      });
 
       // Broadcast TVL update via WebSocket
       await this.broadcastTVLUpdate(tvlRecord);

@@ -2,6 +2,7 @@ const cron = require('node-cron');
 const { sequelize } = require('../database/connection');
 const { Vault, SubSchedule } = require('../models');
 
+// Implements Cold Storage for Completed Vaults (Issue #37)
 class VaultArchivalJob {
   constructor() {
     // Run every Sunday at 02:00 AM
