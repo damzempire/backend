@@ -178,6 +178,7 @@ const vaultBalanceMonitoringJob = require("./jobs/vaultBalanceMonitoringJob");
 const claimWebhookListenerService = require("./services/claimWebhookListenerService");
 const stellarPathPaymentListener = require("./services/stellarPathPaymentListener");
 const kycExpirationWorker = require("./jobs/kycExpirationWorker");
+const gdprComplianceJob = require("./jobs/gdprComplianceJob");
 
 const { Token, initTokenModel } = models; // models already has these
 // Note: models/index.js already calls initTokenModel(sequelize)
@@ -197,6 +198,7 @@ const conversionAnalyticsRoutes = require("./routes/conversionAnalytics");
 const correlationRoutes = require("./routes/correlationRoutes");
 const futureLienRoutes = require("./routes/futureLienRoutes");
 const healthRoutes = require("./routes/healthRoutes");
+const kycStatusRoutes = require("./routes/kycStatusRoutes");
 
 app.get("/", (req, res) => {
   res.json({ message: "Vesting Vault API is running!" });
@@ -439,6 +441,9 @@ app.use("/api/batch-claims", require('./routes/batchClaims'));
 // Mount partner management routes (institutional partner API access)
 app.use("/api/partners", require('./routes/partnerManagement'));
 
+// Mount KYC status routes (KYC management and admin approval)
+app.use("/api/kyc-status", kycStatusRoutes);
+
 // Mount Soroban events routes (event indexing and monitoring)
 app.use("/api/soroban-events", require('./routes/sorobanEvents'));
 
@@ -488,6 +493,31 @@ app.post("/api/admin/jobs/historical-prices/run", async (req, res) => {
 app.get("/api/admin/jobs/historical-prices/stats", async (req, res) => {
   try {
     const stats = historicalPriceTrackingJob.getStats();
+    res.json({ success: true, data: stats });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GDPR compliance job management endpoints
+app.post("/api/admin/jobs/gdpr-compliance/run", async (req, res) => {
+  try {
+    const gdprJob = new gdprComplianceJob();
+    const results = await gdprJob.runManually();
+    res.json({
+      success: true,
+      message: "GDPR compliance check completed",
+      data: results
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get("/api/admin/jobs/gdpr-compliance/stats", async (req, res) => {
+  try {
+    const gdprJob = new gdprComplianceJob();
+    const stats = await gdprJob.getStats();
     res.json({ success: true, data: stats });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -2462,6 +2492,11 @@ if (require.main === module) {
   // Start KYC expiration worker
   console.log('🔍 Starting KYC expiration monitoring worker...');
   kycExpirationWorker.start();
+
+  // Start GDPR compliance job
+  console.log('🔒 Starting GDPR compliance monitoring job...');
+  const gdprJob = new gdprComplianceJob();
+  gdprJob.start();
 
   startServer();
 }
