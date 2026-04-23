@@ -599,4 +599,252 @@ function generateComplianceRecommendations(stats) {
   return recommendations;
 }
 
+// ── ADMIN APPROVAL ENDPOINTS ─────────────────────────────────────────────────
+
+// GET /api/kyc-status/admin/kyc/pending
+// Get all pending KYC applications for manual review
+router.get(
+  '/admin/kyc/pending',
+  authService.authenticate(true), // Require admin authentication
+  async (req, res) => {
+    try {
+      const { page = 1, limit = 20, riskLevel, sortBy = 'created_at', sortOrder = 'DESC' } = req.query;
+
+      // Validate pagination
+      const pageNum = parseInt(page);
+      const limitNum = parseInt(limit);
+      if (pageNum < 1 || limitNum < 1 || limitNum > 100) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid pagination parameters'
+        });
+      }
+
+      // Build where clause
+      const whereClause = {
+        kyc_status: 'PENDING',
+        is_active: true
+      };
+
+      if (riskLevel) {
+        whereClause.risk_level = riskLevel;
+      }
+
+      // Build order clause
+      const orderClause = [];
+      const validSortFields = ['created_at', 'updated_at', 'risk_level', 'user_address'];
+      if (validSortFields.includes(sortBy)) {
+        orderClause.push([sortBy, sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC']);
+      } else {
+        orderClause.push(['created_at', 'DESC']);
+      }
+
+      const { count, rows } = await KycStatus.findAndCountAll({
+        where: whereClause,
+        include: [
+          {
+            model: require('../models').User,
+            as: 'user',
+            required: false,
+            attributes: ['address', 'email']
+          }
+        ],
+        order: orderClause,
+        limit: limitNum,
+        offset: (pageNum - 1) * limitNum,
+        attributes: {
+          exclude: ['id_document_image', 'proof_of_address_image'] // Don't send sensitive images
+        }
+      });
+
+      res.json({
+        success: true,
+        data: {
+          pendingApplications: rows,
+          pagination: {
+            currentPage: pageNum,
+            totalPages: Math.ceil(count / limitNum),
+            totalItems: count,
+            itemsPerPage: limitNum
+          }
+        }
+      });
+
+    } catch (error) {
+      console.error('Error getting pending KYC applications:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+);
+
+// POST /api/kyc-status/admin/kyc/approve
+// Manually approve or reject a KYC application
+router.post(
+  '/admin/kyc/approve',
+  authService.authenticate(true), // Require admin authentication
+  async (req, res) => {
+    try {
+      const { kycId, action, reason, notes } = req.body;
+
+      // Validate input
+      if (!kycId || !action) {
+        return res.status(400).json({
+          success: false,
+          message: 'kycId and action are required'
+        });
+      }
+
+      if (!['approve', 'reject'].includes(action)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Action must be either "approve" or "reject"'
+        });
+      }
+
+      // Find the KYC status
+      const kycStatus = await KycStatus.findByPk(kycId);
+      if (!kycStatus) {
+        return res.status(404).json({
+          success: false,
+          message: 'KYC application not found'
+        });
+      }
+
+      if (kycStatus.kyc_status !== 'PENDING') {
+        return res.status(400).json({
+          success: false,
+          message: 'KYC application is not in PENDING status'
+        });
+      }
+
+      // Update the KYC status
+      const newStatus = action === 'approve' ? 'VERIFIED' : 'REJECTED';
+      const updateData = {
+        kyc_status: newStatus,
+        manual_review_date: new Date(),
+        manual_review_reason: reason,
+        manual_review_notes: notes,
+        reviewed_by: req.user?.address || 'admin' // Assuming auth middleware sets req.user
+      };
+
+      // Set expiration date for approved applications (5 years from now)
+      if (action === 'approve') {
+        const expirationDate = new Date();
+        expirationDate.setFullYear(expirationDate.getFullYear() + 5);
+        updateData.expiration_date = expirationDate;
+      }
+
+      await kycStatus.update(updateData);
+
+      // Create notification for the user
+      const notificationService = require('../services/notificationService');
+      const notificationMessage = action === 'approve'
+        ? 'Your KYC application has been approved. You now have full access to the platform.'
+        : `Your KYC application has been rejected. Reason: ${reason || 'Manual review'}`;
+
+      await notificationService.createKycNotification(
+        kycStatus.id,
+        action === 'approve' ? 'KYC_APPROVED' : 'KYC_REJECTED',
+        notificationMessage,
+        'admin_manual_review'
+      );
+
+      res.json({
+        success: true,
+        message: `KYC application ${action}d successfully`,
+        data: {
+          kycId,
+          newStatus,
+          reviewedAt: updateData.manual_review_date
+        }
+      });
+
+    } catch (error) {
+      console.error('Error processing KYC approval:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+);
+
+// ── ZK-PROOF GENERATION ENDPOINTS ─────────────────────────────────────────────
+
+// POST /api/kyc-status/zk-proof
+// Generate ZK-proof for verified user proving age >= 18 without revealing birthdate
+router.post(
+  '/zk-proof',
+  authService.authenticate(true), // Require authentication
+  async (req, res) => {
+    try {
+      const { userAddress } = req.body;
+
+      // Validate input
+      if (!userAddress) {
+        return res.status(400).json({
+          success: false,
+          message: 'userAddress is required'
+        });
+      }
+
+      // Get user's KYC status to ensure they are verified
+      const kycStatus = await KycStatus.findOne({
+        where: { user_address: userAddress }
+      });
+
+      if (!kycStatus) {
+        return res.status(404).json({
+          success: false,
+          message: 'KYC status not found for this user'
+        });
+      }
+
+      if (kycStatus.kyc_status !== 'VERIFIED') {
+        return res.status(403).json({
+          success: false,
+          message: 'User must have VERIFIED KYC status to generate ZK-proof'
+        });
+      }
+
+      // Check if user has required data for age verification
+      if (!kycStatus.birth_date) {
+        return res.status(400).json({
+          success: false,
+          message: 'User birth date is required for age verification proof'
+        });
+      }
+
+      // Prepare user data for ZK-proof generation
+      const userData = {
+        userAddress: kycStatus.user_address,
+        birthDate: kycStatus.birth_date,
+        firstName: kycStatus.first_name,
+        lastName: kycStatus.last_name
+      };
+
+      // Generate ZK-proof
+      const ZKProofService = require('../services/zkProofService');
+      const zkService = new ZKProofService();
+      const proofResult = await zkService.generateAgeProof(userData);
+
+      res.json({
+        success: true,
+        message: 'ZK-proof generated successfully',
+        data: proofResult
+      });
+
+    } catch (error) {
+      console.error('Error generating ZK-proof:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to generate ZK-proof'
+      });
+    }
+  }
+);
+
 module.exports = router;

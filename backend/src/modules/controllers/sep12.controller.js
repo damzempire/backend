@@ -1,4 +1,5 @@
 const SEP12Service = require('../services/sep12.service');
+const { KycStatus } = require('../../models');
 
 class SEP12Controller {
   constructor(dbManager) {
@@ -8,12 +9,83 @@ class SEP12Controller {
   async getCustomer(req, res) {
     try {
       const { account, memo, memo_type, type } = req.query;
-      const result = await this.sep12Service.getCustomerStatus(account, memo, memo_type, type);
-      res.json(result);
+      
+      // Validate required account parameter
+      if (!account) {
+        return res.status(400).json({
+          error: 'Bad Request',
+          message: 'account parameter is required'
+        });
+      }
+
+      // Get KYC status from internal database (KycStatus model)
+      const kycStatus = await KycStatus.findOne({
+        where: { user_address: account }
+      });
+
+      if (!kycStatus) {
+        // User not found in system
+        return res.status(404).json({
+          error: 'Not Found',
+          message: 'Customer not found'
+        });
+      }
+
+      // Map internal status to SEP-12 status
+      const statusMapping = {
+        'VERIFIED': 'ACCEPTED',
+        'PENDING': 'PENDING',
+        'REJECTED': 'REJECTED',
+        'EXPIRED': 'REJECTED',
+        'SOFT_LOCKED': 'REJECTED',
+        'NEEDS_INFO': 'NEEDS_INFO'
+      };
+
+      const sep12Status = statusMapping[kycStatus.kyc_status] || 'PENDING';
+
+      // Return SEP-12 compliant response
+      const response = {
+        id: kycStatus.id.toString(),
+        status: sep12Status
+      };
+
+      // If status is NEEDS_INFO, include required fields
+      if (sep12Status === 'NEEDS_INFO') {
+        response.fields = {
+          'first_name': {
+            description: 'First name of the customer',
+            type: 'string'
+          },
+          'last_name': {
+            description: 'Last name of the customer',
+            type: 'string'
+          },
+          'email_address': {
+            description: 'Email address of the customer',
+            type: 'string'
+          },
+          'birth_date': {
+            description: 'Date of birth (YYYY-MM-DD)',
+            type: 'string'
+          },
+          'tax_id': {
+            description: 'Tax identification number',
+            type: 'string',
+            optional: true
+          },
+          'address': {
+            description: 'Residential address',
+            type: 'string'
+          }
+        };
+      }
+
+      res.json(response);
     } catch (error) {
+      console.error('Error in getCustomer:', error);
       res.status(500).json({
-        error: 'Failed to get customer status',
-        message: error.message
+        error: 'Internal Server Error',
+        message: 'Failed to retrieve customer information'
       });
     }
   }
@@ -32,6 +104,11 @@ class SEP12Controller {
   }
 
   registerRoutes(app) {
+    // SEP-12 standard endpoints
+    app.get('/customer', this.getCustomer.bind(this));
+    app.put('/customer', this.updateCustomer.bind(this));
+    
+    // Legacy endpoints (keeping for backward compatibility)
     app.get('/kyc/customer', this.getCustomer.bind(this));
     app.put('/kyc/customer', this.updateCustomer.bind(this));
     
