@@ -32,6 +32,12 @@ const ClaimsHistory = sequelize.define('ClaimsHistory', {
     type: DataTypes.BIGINT,
     allowNull: false,
   },
+  event_index: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 0,
+    comment: 'Event index within the transaction for idempotency',
+  },
   price_at_claim_usd: {
     type: DataTypes.DECIMAL(36, 18),
     allowNull: true,
@@ -61,7 +67,7 @@ const ClaimsHistory = sequelize.define('ClaimsHistory', {
       fields: ['claim_timestamp'],
     },
     {
-      fields: ['transaction_hash'],
+      fields: ['transaction_hash', 'event_index'],
       unique: true,
     },
   ],

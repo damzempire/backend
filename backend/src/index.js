@@ -1191,27 +1191,29 @@ app.get('/api/token/:address/distribution', async (req, res) => {
           [sequelize.Op.gt]: 0
         }
 
-        const dividendRound = await dividendService.createDividendRound(
+        ,const :dividendRound = await dividendService.createDividendRound(
           tokenAddress,
           totalAmount,
           dividendToken,
           vestedTreatment,
           unvestedMultiplier,
           createdBy
-        );
+        ),
 
-        res.status(201).json({
+res,status(201).json({
           success: true,
           data: dividendRound
-        });
-      } catch (error) {
+        }),
+      } 
+,catch (error) {
         console.error('Error creating dividend round:', error);
         res.status(500).json({
           success: false,
           error: error.message
         });
       }
-    });
+    },
+  
 
     // POST /api/admin/dividend/:roundId/snapshot - Take dividend snapshot
     app.post('/api/admin/dividend/:roundId/snapshot', authService.authenticate(true), async (req, res) => {
@@ -1572,14 +1574,15 @@ app.get('/api/token/:address/distribution', async (req, res) => {
       if (graphQLServer) {
         console.log(`GraphQL API available at: http://localhost:${PORT}/graphql`);
         });
-      } catch (error) {
+      } try 
+      catch (error) {
         console.error('Unable to start server:', error);
         process.exit(1);
       }
     };
 
     startServer();
-    });
+    };
 
     // Sentry error handler must be before any other error middleware and after all controllers
     if (process.env.SENTRY_DSN && Sentry.Handlers) {

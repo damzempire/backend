@@ -20,6 +20,7 @@ class IndexingService {
         amount_claimed,
         claim_timestamp,
         transaction_hash,
+        event_index = 0,
         block_number
       } = claimData;
 
@@ -30,15 +31,30 @@ class IndexingService {
       );
 
       // Create the claim record with price data
-      const claim = await ClaimsHistory.create({
-        user_address,
-        token_address,
-        amount_claimed,
-        claim_timestamp,
-        transaction_hash,
-        block_number,
-        price_at_claim_usd
-      });
+      let claim;
+      try {
+        claim = await ClaimsHistory.create({
+          user_address,
+          token_address,
+          amount_claimed,
+          claim_timestamp,
+          transaction_hash,
+          event_index,
+          block_number,
+          price_at_claim_usd
+        });
+      } catch (error) {
+        if (error.name === 'SequelizeUniqueConstraintError') {
+          const existing = await ClaimsHistory.findOne({
+            where: { transaction_hash, event_index }
+          });
+          if (existing) {
+            console.log(`Duplicate claim event detected: ${transaction_hash}:${event_index}, returning existing record`);
+            return existing;
+          }
+        }
+        throw error;
+      }
 
       console.log(`Processed claim ${transaction_hash} with price $${price_at_claim_usd}`);
 
@@ -410,6 +426,7 @@ class IndexingService {
       vault_address,
       top_up_amount,
       transaction_hash,
+      event_index = 0,
       block_number,
       timestamp,
       cliff_duration = null,
@@ -477,18 +494,33 @@ class IndexingService {
 
     const endTimestamp = new Date(vestingStartDate.getTime() + (vesting_dur || 0) * 1000);
 
-    const subSchedule = await SubSchedule.create({
-      vault_id: vault.id,
-      top_up_amount: actualReceivedAmount,
-      transaction_hash: transaction_hash,
-      vesting_start_date: vestingStartDate,
-      start_timestamp: topUpTimestamp,
-      end_timestamp: endTimestamp,
-      cliff_duration: cliff_dur || 0,
-      cliff_date: cliffDate,
-      vesting_duration: vesting_dur || 0,
-      block_number
-    });
+    let subSchedule;
+    try {
+      subSchedule = await SubSchedule.create({
+        vault_id: vault.id,
+        top_up_amount: actualReceivedAmount,
+        transaction_hash: transaction_hash,
+        event_index,
+        vesting_start_date: vestingStartDate,
+        start_timestamp: topUpTimestamp,
+        end_timestamp: endTimestamp,
+        cliff_duration: cliff_dur || 0,
+        cliff_date: cliffDate,
+        vesting_duration: vesting_dur || 0,
+        block_number
+      });
+    } catch (error) {
+      if (error.name === 'SequelizeUniqueConstraintError') {
+        const existing = await SubSchedule.findOne({
+          where: { transaction_hash, event_index }
+        });
+        if (existing) {
+          console.log(`Duplicate top-up event detected: ${transaction_hash}:${event_index}, returning existing record`);
+          return existing;
+        }
+      }
+      throw error;
+    }
 
     await vault.update({
       total_amount: parseFloat(vault.total_amount) + parseFloat(actualReceivedAmount),
