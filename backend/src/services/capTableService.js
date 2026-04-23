@@ -9,6 +9,8 @@ const {
 const { Op } = require('sequelize');
 const { sequelize } = require('../database/connection');
 
+const cacheService = require('./cacheService');
+
 /**
  * Cap Table Service for generating real-time Web3 Cap Table
  * Groups all individual vesting schedules by user/entity and calculates ownership percentages
@@ -21,6 +23,22 @@ class CapTableService {
    * @returns {Object} Cap table data with ownership breakdown
    */
   async generateCapTable(tokenAddress, options = {}) {
+    const { includeInactive = false, organizationId = null, asOfDate = new Date() } = options;
+    
+    // Only cache if asOfDate is roughly "now" (default)
+    const isNow = !options.asOfDate || Math.abs(new Date(asOfDate) - new Date()) < 60000;
+    
+    if (isNow && !includeInactive) {
+      const cacheKey = `cap_table:${tokenAddress}${organizationId ? `:${organizationId}` : ''}`;
+      return await cacheService.wrapWithCache(cacheKey, async () => {
+        return this._generateCapTableInternal(tokenAddress, options);
+      }, 900); // 15 minutes TTL
+    }
+
+    return this._generateCapTableInternal(tokenAddress, options);
+  }
+
+  async _generateCapTableInternal(tokenAddress, options = {}) {
     const { includeInactive = false, organizationId = null, asOfDate = new Date() } = options;
     
     // Get all vaults for this token
@@ -61,10 +79,23 @@ class CapTableService {
     };
   }
 
-  /**
-   * Get cap table for a specific organization
-   */
   async getOrganizationCapTable(organizationId, tokenAddress = null, options = {}) {
+    const { asOfDate = new Date() } = options;
+    
+    // Only cache if asOfDate is roughly "now" (default)
+    const isNow = !options.asOfDate || Math.abs(new Date(asOfDate) - new Date()) < 60000;
+
+    if (isNow) {
+      const cacheKey = `org_cap_table:${organizationId}${tokenAddress ? `:${tokenAddress}` : ''}`;
+      return await cacheService.wrapWithCache(cacheKey, async () => {
+        return this._getOrganizationCapTableInternal(organizationId, tokenAddress, options);
+      }, 900); // 15 minutes TTL
+    }
+
+    return this._getOrganizationCapTableInternal(organizationId, tokenAddress, options);
+  }
+
+  async _getOrganizationCapTableInternal(organizationId, tokenAddress = null, options = {}) {
     const { asOfDate = new Date() } = options;
     
     const whereClause = { org_id: organizationId };

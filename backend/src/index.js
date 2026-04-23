@@ -199,6 +199,7 @@ const correlationRoutes = require("./routes/correlationRoutes");
 const futureLienRoutes = require("./routes/futureLienRoutes");
 const healthRoutes = require("./routes/healthRoutes");
 const kycStatusRoutes = require("./routes/kycStatusRoutes");
+const unlockProjectionRoutes = require("./routes/unlockProjectionRoutes");
 
 app.get("/", (req, res) => {
   res.json({ message: "Vesting Vault API is running!" });
@@ -523,6 +524,9 @@ app.get("/api/admin/jobs/gdpr-compliance/stats", async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
+// Mount unlock projection routes
+app.use('/api/analytics/projections', unlockProjectionRoutes);
 
 // Mount analytics routes
 app.use('/api', analyticsRoutes);
@@ -2540,6 +2544,10 @@ if (require.main === module) {
   console.log('🔒 Starting GDPR compliance monitoring job...');
   const gdprJob = new gdprComplianceJob();
   gdprJob.start();
+
+  // Start Historical Price Tracking Job (SEP-40)
+  console.log('📊 Starting Historical Price Tracking Job...');
+  historicalPriceTrackingJob.start();
 
   startServer();
 }

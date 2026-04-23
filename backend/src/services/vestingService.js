@@ -3,6 +3,7 @@
 const { Vault, Beneficiary, SubSchedule } = require('../models');
 const { sequelize } = require('../database/connection');
 const auditLogger = require('./auditLogger');
+const AuditService = require('./auditService');
 
 class VestingService {
   /**
@@ -69,6 +70,15 @@ class VestingService {
           tag: vault.tag,
         });
 
+        // Immutable Audit Log
+        await AuditService.logAction({
+          adminPubkey: adminAddress,
+          action: AuditService.ACTIONS.CREATE_VESTING_SCHEDULE,
+          ipAddress: options?.ipAddress || 'unknown', // Need to pass IP down or extract from context
+          payload: vaultData,
+          resourceId: vault.address
+        });
+
         return vault;
       } else {
         // ── Individual-parameter call ─────────────────────────────────────
@@ -94,6 +104,15 @@ class VestingService {
           startDate,
           endDate,
           cliffDate,
+        });
+
+        // Immutable Audit Log
+        await AuditService.logAction({
+          adminPubkey: adminAddress,
+          action: AuditService.ACTIONS.CREATE_VESTING_SCHEDULE,
+          ipAddress: 'unknown',
+          payload: { vaultAddress, ownerAddress, tokenAddress, totalAmount, startDate, endDate, cliffDate },
+          resourceId: vaultAddress
         });
 
         return {

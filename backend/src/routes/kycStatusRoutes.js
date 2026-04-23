@@ -3,6 +3,7 @@ const router = express.Router();
 const KycStatus = require("../models/KycStatus");
 const KycStatusExpirationWorker = require("../jobs/kycStatusExpirationWorker");
 const authService = require("../services/authService");
+const AuditService = require("../services/auditService");
 const sep10Auth = require("../middleware/sep10Auth.middleware");
 const { Op } = require("sequelize");
 
@@ -760,6 +761,15 @@ router.post(
         notificationMessage,
         "admin_manual_review",
       );
+
+      // Immutable Audit Log
+      await AuditService.logAction({
+        adminPubkey: req.user?.address || "admin",
+        action: action === "approve" ? AuditService.ACTIONS.APPROVE_KYC : AuditService.ACTIONS.REJECT_KYC,
+        ipAddress: req.ip || req.headers['x-forwarded-for'] || 'unknown',
+        payload: { kycId, action, reason, notes },
+        resourceId: kycId
+      });
 
       res.json({
         success: true,
