@@ -99,6 +99,18 @@ SubSchedule.associate = function (models) {
     foreignKey: 'vault_id',
     as: 'vault'
   });
+
+  SubSchedule.hasMany(models.ClaimsHistory, {
+    foreignKey: 'vault_id',
+    sourceKey: 'vault_id',
+    as: 'claims'
+  });
+
+  SubSchedule.hasMany(models.VestingMilestone, {
+    foreignKey: 'vault_id',
+    sourceKey: 'vault_id',
+    as: 'milestones'
+  });
 };
 
 module.exports = SubSchedule;

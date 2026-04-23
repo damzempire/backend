@@ -6,6 +6,7 @@ const { rateLimit } = require("express-rate-limit");
 const {
   walletRateLimitMiddleware,
 } = require("./middleware/wallet-ratelimit.middleware");
+const SEP12Module = require("./modules/sep12-kyc/sep12.module");
 
 const Sentry = require("@sentry/node");
 const { nodeProfilingIntegration } = require("@sentry/profiling-node");
@@ -195,6 +196,7 @@ const contractUpgradeRoutes = require("./routes/contractUpgrade");
 const conversionAnalyticsRoutes = require("./routes/conversionAnalytics");
 const correlationRoutes = require("./routes/correlationRoutes");
 const futureLienRoutes = require("./routes/futureLienRoutes");
+const healthRoutes = require("./routes/healthRoutes");
 
 app.get("/", (req, res) => {
   res.json({ message: "Vesting Vault API is running!" });
@@ -203,6 +205,9 @@ app.get("/", (req, res) => {
 app.get("/health", (req, res) => {
   res.json({ status: "OK", timestamp: new Date().toISOString() });
 });
+
+// Mount sync health check routes
+app.use("/health", healthRoutes);
 
 // Enhanced health check with readiness probe
 app.get("/health/ready", async (req, res) => {
@@ -433,6 +438,15 @@ app.use("/api/batch-claims", require('./routes/batchClaims'));
 
 // Mount partner management routes (institutional partner API access)
 app.use("/api/partners", require('./routes/partnerManagement'));
+
+// Mount Soroban events routes (event indexing and monitoring)
+app.use("/api/soroban-events", require('./routes/sorobanEvents'));
+
+// Mount ledger reorg management routes (reorg detection and resync)
+app.use("/api/ledger-reorg", require('./routes/ledgerReorg'));
+
+// Mount vesting history routes (optimized PostgreSQL queries)
+app.use("/api/vesting-history", require('./routes/vestingHistory'));
 
 // Historical price tracking job management endpoints
 app.post("/api/admin/jobs/historical-prices/start", async (req, res) => {
@@ -2263,6 +2277,17 @@ const startServer = async () => {
     await sequelize.sync();
     console.log("Database synchronized successfully.");
 
+    // Initialize SEP-12 KYC Module
+    try {
+      const sep12Module = new SEP12Module({ sequelize });
+      await sep12Module.initialize();
+      sep12Module.registerRoutes(app);
+      console.log('SEP-12 KYC Module initialized successfully.');
+    } catch (sep12Error) {
+      console.error('Failed to initialize SEP-12 KYC Module:', sep12Error);
+      console.log('Continuing without SEP-12 KYC functionality...');
+    }
+
     // Initialize Vesting Update WebSocket Server AFTER database is ready
     try {
       const VestingUpdateWebSocket = require('./websocket/vesting-update.websocket');
@@ -2271,6 +2296,16 @@ const startServer = async () => {
     } catch (wsError) {
       console.error('Failed to initialize WebSocket:', wsError);
       console.log('Continuing with REST API only...');
+    }
+
+    // Initialize Dashboard Gateway for enhanced real-time updates
+    try {
+      const DashboardGateway = require('./websocket/dashboard-gateway.gateway');
+      const dashboardGateway = new DashboardGateway(httpServer);
+      console.log('Dashboard Gateway initialized successfully.');
+    } catch (gatewayError) {
+      console.error('Failed to initialize Dashboard Gateway:', gatewayError);
+      console.log('Continuing without enhanced dashboard features...');
     }
 
     // Initialize Redis Cache
@@ -2372,6 +2407,38 @@ const startServer = async () => {
       console.log("Stellar Path Payment Listener started successfully.");
     } catch (listenerError) {
       console.error("Failed to initialize Stellar Path Payment Listener:", listenerError);
+    }
+
+    // Initialize Soroban Event Poller Service
+    try {
+      const SorobanEventPollerService = require('./services/sorobanEventPollerService');
+      const SorobanEventProcessor = require('./services/sorobanEventProcessor');
+      
+      const sorobanEventPoller = new SorobanEventPollerService({
+        pollInterval: parseInt(process.env.SOROBAN_POLL_INTERVAL) || 30000,
+        batchSize: parseInt(process.env.SOROBAN_BATCH_SIZE) || 100,
+        contractAddresses: process.env.SOROBAN_CONTRACT_ADDRESSES ? 
+          process.env.SOROBAN_CONTRACT_ADDRESSES.split(',') : []
+      });
+      
+      const sorobanEventProcessor = new SorobanEventProcessor({
+        batchSize: parseInt(process.env.SOROBAN_PROCESSOR_BATCH_SIZE) || 50,
+        processingDelay: parseInt(process.env.SOROBAN_PROCESSOR_DELAY) || 1000
+      });
+      
+      // Start both services
+      await sorobanEventPoller.start();
+      await sorobanEventProcessor.startProcessing();
+      
+      console.log("Soroban Event Poller and Processor services started successfully.");
+      
+      // Store services globally for access in routes
+      global.sorobanEventPoller = sorobanEventPoller;
+      global.sorobanEventProcessor = sorobanEventProcessor;
+      
+    } catch (sorobanError) {
+      console.error("Failed to initialize Soroban Event services:", sorobanError);
+      console.log("Continuing without Soroban event indexing...");
     }
 
     // Start HTTP server

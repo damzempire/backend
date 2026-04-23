@@ -297,6 +297,77 @@ class IndexingService {
   };
 }
 
+  /**
+   * Optimized historical sync using bulk inserts for large datasets
+   * @param {Object} historicalData - Object containing arrays of claims, schedules, and vaults
+   * @param {Object} options - Additional options for bulk processing
+   * @returns {Promise<Object>} Results with performance metrics
+   */
+  async optimizedHistoricalSync(historicalData, options = {}) {
+    try {
+      console.log('Starting optimized historical sync with bulk inserts...');
+      
+      // Use the bulk insert service for optimal performance
+      const results = await bulkInsertService.optimizedHistoricalSync(historicalData, options);
+      
+      // Send summary alert for large sync operations
+      if (results.totalRecords > 10000) {
+        try {
+          await this.sendHistoricalSyncAlert(results);
+        } catch (alertError) {
+          console.error('Error sending historical sync alert:', alertError);
+          // Don't throw - alert failure shouldn't fail the sync
+        }
+      }
+      
+      return results;
+      
+    } catch (error) {
+      console.error('Error in optimized historical sync:', error);
+      Sentry.captureException(error, {
+        tags: { service: 'indexing', operation: 'optimizedHistoricalSync' },
+        extra: { 
+          totalClaims: historicalData.claims?.length || 0,
+          totalSchedules: historicalData.schedules?.length || 0,
+          totalVaults: historicalData.vaults?.length || 0
+        }
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Send alert for large historical sync operations
+   * @param {Object} results - Sync results
+   */
+  async sendHistoricalSyncAlert(results) {
+    try {
+      const message = `**Historical Sync Completed**
+
+**Total Records:** ${results.totalRecords.toLocaleString()}
+**Successfully Processed:** ${results.totalProcessed.toLocaleString()}
+**Errors:** ${results.totalErrors.toLocaleString()}
+**Duration:** ${(results.totalDuration / 1000).toFixed(2)} seconds
+**Success Rate:** ${((results.totalProcessed / results.totalRecords) * 100).toFixed(2)}%
+
+**Breakdown:**
+- Claims: ${results.claims ? `${results.claims.processed.toLocaleString()} processed, ${results.claims.errors.toLocaleString()} errors` : 'N/A'}
+- Schedules: ${results.schedules ? `${results.schedules.processed.toLocaleString()} processed, ${results.schedules.errors.toLocaleString()} errors` : 'N/A'}
+- Vaults: ${results.vaults ? `${results.vaults.processed.toLocaleString()} processed, ${results.vaults.errors.toLocaleString()} errors` : 'N/A'}
+
+Genesis sync performance has been optimized with bulk inserts.`;
+
+      await slackWebhookService.sendAlert(message, {
+        channel: '#alerts',
+        username: 'Historical Sync Monitor',
+        priority: 'medium'
+      });
+
+    } catch (error) {
+      console.error('Failed to send historical sync alert:', error);
+    }
+  }
+
   async backfillMissingPrices() {
   try {
     // Find all claims without price data

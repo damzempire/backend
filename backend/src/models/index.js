@@ -100,6 +100,7 @@ const models = {
   LienMilestone,
   DAOProposal,
   DAOVote,
+  SorobanEvent,
   sequelize,
 };
 
