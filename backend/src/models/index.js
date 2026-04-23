@@ -1,25 +1,28 @@
-const { sequelize } = require('../database/connection');
+const { sequelize } = require("../database/connection");
 
-const ClaimsHistory = require('./claimsHistory');
-const Vault = require('./vault');
-const SubSchedule = require('./subSchedule');
-const TVL = require('./tvl');
-const Beneficiary = require('./beneficiary');
-const Organization = require('./organization');
-const Notification = require('./notification');
-const RefreshToken = require('./refreshToken');
-const RevocationProposal = require('./revocationProposal');
-const RevocationSignature = require('./revocationSignature');
-const MultiSigConfig = require('./multiSigConfig');
-const DividendRound = require('./dividendRound');
-const DividendDistribution = require('./dividendDistribution');
-const DividendSnapshot = require('./dividendSnapshot');
-const DeviceToken = require('./deviceToken');
-const VaultLegalDocument = require('./vaultLegalDocument');
-const VaultLiquidityAlert = require('./vaultLiquidityAlert');
+const ClaimsHistory = require("./claimsHistory");
+const Vault = require("./vault");
+const SubSchedule = require("./subSchedule");
+const TVL = require("./tvl");
+const Beneficiary = require("./beneficiary");
+const Organization = require("./organization");
+const Notification = require("./notification");
+const RefreshToken = require("./refreshToken");
+const RevocationProposal = require("./revocationProposal");
+const RevocationSignature = require("./revocationSignature");
+const MultiSigConfig = require("./multiSigConfig");
+const DividendRound = require("./dividendRound");
+const DividendDistribution = require("./dividendDistribution");
+const DividendSnapshot = require("./dividendSnapshot");
+const DeviceToken = require("./deviceToken");
+const VaultLegalDocument = require("./vaultLegalDocument");
+const VaultLiquidityAlert = require("./vaultLiquidityAlert");
 
-const { Token, initTokenModel } = require('./token');
-const { OrganizationWebhook, initOrganizationWebhookModel } = require('./organizationWebhook');
+const { Token, initTokenModel } = require("./token");
+const {
+  OrganizationWebhook,
+  initOrganizationWebhookModel,
+} = require("./organizationWebhook");
 const { sequelize } = require("../database/connection");
 
 const ClaimsHistory = require("./claimsHistory");
@@ -64,8 +67,7 @@ const DAOVote = require("./daoVote");
 const ContractUpgradeSignature = require("./contractUpgradeSignature");
 const ContractUpgradeAuditLog = require("./contractUpgradeAuditLog");
 const VaultBalanceMonitorState = require("./vaultBalanceMonitorState");
-const GrantPriceSnapshot = require("./grantPriceSnapshot");
-const RoiCalculation = require("./roiCalculation");
+const TicketType = require("./TicketType");
 const SorobanEvent = require("./sorobanEvent");
 
 const { Token, initTokenModel } = require("./token");
@@ -77,6 +79,10 @@ const ClaimWebhookDelivery = require("./claimWebhookDelivery");
 
 initTokenModel(sequelize);
 initOrganizationWebhookModel(sequelize);
+
+// Initialize TicketType model
+const TicketTypeModel = TicketType(sequelize);
+models.TicketType = TicketTypeModel;
 
 const models = {
   ClaimsHistory,
@@ -109,8 +115,6 @@ const models = {
   CostBasisReport,
   AuditorToken,
   AnnualVestingStatement,
-  Token,
-  OrganizationWebhook,
   ClaimWebhookDelivery,
   VaultRegistry,
   ContractUpgradeProposal,
@@ -126,6 +130,7 @@ const models = {
   LienMilestone,
   DAOProposal,
   DAOVote,
+  TicketType,
   SorobanEvent,
   GrantPriceSnapshot,
   RoiCalculation,
