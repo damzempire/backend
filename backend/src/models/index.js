@@ -64,6 +64,9 @@ const DAOVote = require("./daoVote");
 const ContractUpgradeSignature = require("./contractUpgradeSignature");
 const ContractUpgradeAuditLog = require("./contractUpgradeAuditLog");
 const VaultBalanceMonitorState = require("./vaultBalanceMonitorState");
+const GrantPriceSnapshot = require("./grantPriceSnapshot");
+const RoiCalculation = require("./roiCalculation");
+const SorobanEvent = require("./sorobanEvent");
 
 const { Token, initTokenModel } = require("./token");
 const {
@@ -124,6 +127,8 @@ const models = {
   DAOProposal,
   DAOVote,
   SorobanEvent,
+  GrantPriceSnapshot,
+  RoiCalculation,
   sequelize,
 };
 
