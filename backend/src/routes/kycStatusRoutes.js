@@ -1,27 +1,28 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const KycStatus = require('../models/KycStatus');
-const KycStatusExpirationWorker = require('../jobs/kycStatusExpirationWorker');
-const authService = require('../services/authService');
-const { Op } = require('sequelize');
+const KycStatus = require("../models/KycStatus");
+const KycStatusExpirationWorker = require("../jobs/kycStatusExpirationWorker");
+const authService = require("../services/authService");
+const sep10Auth = require("../middleware/sep10Auth.middleware");
+const { Op } = require("sequelize");
 
 const kycWorker = new KycStatusExpirationWorker();
 
 // GET /api/kyc-status/user/:userAddress
 // Get KYC status for a specific user
 router.get(
-  '/user/:userAddress',
-  authService.authenticate(true), // Require authentication
+  "/user/:userAddress",
+  sep10Auth.authenticate(), // Require SEP-10 JWT authentication
   async (req, res) => {
     try {
       const { userAddress } = req.params;
-      const { includeExpired = 'false' } = req.query;
+      const { includeExpired = "false" } = req.query;
 
       // Validate user address
       if (!userAddress) {
         return res.status(400).json({
           success: false,
-          message: 'User address is required'
+          message: "User address is required",
         });
       }
 
@@ -29,18 +30,18 @@ router.get(
         where: { user_address: userAddress },
         include: [
           {
-            model: require('../models').User,
-            as: 'user',
+            model: require("../models").User,
+            as: "user",
             required: false,
-            attributes: ['address', 'email']
-          }
-        }
-      ]);
+            attributes: ["address", "email"],
+          },
+        ],
+      });
 
       if (!kycStatus) {
         return res.status(404).json({
           success: false,
-          message: 'KYC status not found for this user'
+          message: "KYC status not found for this user",
         });
       }
 
@@ -48,51 +49,52 @@ router.get(
       let resultData = {
         userAddress,
         kycStatus: kycStatus.toJSON(),
-        lastUpdated: kycStatus.updated_at
+        lastUpdated: kycStatus.updated_at,
       };
 
-      if (includeExpired === 'true') {
+      if (includeExpired === "true") {
         const expiredStatuses = await KycStatus.findAll({
           where: {
             user_address: userAddress,
-            kyc_status: 'EXPIRED'
+            kyc_status: "EXPIRED",
           },
-          order: [['expiration_date', 'DESC']],
-          limit: 5
+          order: [["expiration_date", "DESC"]],
+          limit: 5,
         });
 
-        resultData.expiredHistory = expiredStatuses.map(status => status.toJSON());
+        resultData.expiredHistory = expiredStatuses.map((status) =>
+          status.toJSON(),
+        );
       }
 
       res.json({
         success: true,
-        data: resultData
+        data: resultData,
       });
-
     } catch (error) {
-      console.error('Error getting KYC status:', error);
+      console.error("Error getting KYC status:", error);
       res.status(500).json({
         success: false,
-        message: error.message
+        message: error.message,
       });
     }
-  }
+  },
 );
 
 // GET /api/kyc-status/expiring
 // Get all users with expiring KYC statuses
 router.get(
-  '/expiring',
-  authService.authenticate(true), // Require admin authentication
+  "/expiring",
+  sep10Auth.authenticateAdmin(), // Require SEP-10 admin authentication
   async (req, res) => {
     try {
-      const { days = 7, includeCritical = 'true' } = req.query;
+      const { days = 7, includeCritical = "true" } = req.query;
 
       // Validate parameters
       if (isNaN(days) || days < 1 || days > 30) {
         return res.status(400).json({
           success: false,
-          message: 'Days parameter must be between 1 and 30'
+          message: "Days parameter must be between 1 and 30",
         });
       }
 
@@ -103,15 +105,15 @@ router.get(
       const whereClause = {
         expiration_date: {
           [Op.lte]: thresholdDate,
-          [Op.gt]: new Date()
+          [Op.gt]: new Date(),
         },
         is_active: true,
         kyc_status: {
-          [Op.notIn]: ['EXPIRED', 'SOFT_LOCKED']
-        }
+          [Op.notIn]: ["EXPIRED", "SOFT_LOCKED"],
+        },
       };
 
-      if (includeCritical === 'true') {
+      if (includeCritical === "true") {
         // Include only critical expirations (≤3 days)
         const criticalThresholdDate = new Date();
         criticalThresholdDate.setDate(criticalThresholdDate.getDate() - 3);
@@ -122,19 +124,19 @@ router.get(
         where: whereClause,
         include: [
           {
-            model: require('../models').User,
-            as: 'user',
+            model: require("../models").User,
+            as: "user",
             required: false,
-            attributes: ['address', 'email']
-          }
+            attributes: ["address", "email"],
+          },
         ],
-        order: [['expiration_date', 'ASC']]
+        order: [["expiration_date", "ASC"]],
       });
 
-      const result = expiringStatuses.map(status => ({
+      const result = expiringStatuses.map((status) => ({
         ...status.toJSON(),
         daysUntilExpiration: status.days_until_expiration,
-        isCritical: status.days_until_expiration <= 3
+        isCritical: status.days_until_expiration <= 3,
       }));
 
       res.json({
@@ -144,52 +146,51 @@ router.get(
           expiringUsers: result,
           summary: {
             total: result.length,
-            critical: result.filter(s => s.isCritical).length,
-            soonExpiring: result.filter(s => !s.isCritical).length
-          }
-        }
+            critical: result.filter((s) => s.isCritical).length,
+            soonExpiring: result.filter((s) => !s.isCritical).length,
+          },
+        },
       });
-
     } catch (error) {
-      console.error('Error getting expiring KYC statuses:', error);
+      console.error("Error getting expiring KYC statuses:", error);
       res.status(500).json({
         success: false,
-        message: error.message
+        message: error.message,
       });
     }
-  }
+  },
 );
 
 // GET /api/kyc-status/expired
 // Get all users with expired KYC statuses
 router.get(
-  '/expired',
-  authService.authenticate(true), // Require admin authentication
+  "/expired",
+  sep10Auth.authenticateAdmin(), // Require SEP-10 admin authentication
   async (req, res) => {
     try {
       const { limit = 50, offset = 0 } = req.query;
 
       const expiredStatuses = await KycStatus.findAll({
         where: {
-          kyc_status: 'EXPIRED',
-          is_active: true
+          kyc_status: "EXPIRED",
+          is_active: true,
         },
         include: [
           {
-            model: require('../models').User,
-            as: 'user',
+            model: require("../models").User,
+            as: "user",
             required: false,
-            attributes: ['address', 'email']
-          }
+            attributes: ["address", "email"],
+          },
         ],
-        order: [['expiration_date', 'DESC']],
+        order: [["expiration_date", "DESC"]],
         limit: parseInt(limit),
-        offset: parseInt(offset)
+        offset: parseInt(offset),
       });
 
-      const result = expiredStatuses.map(status => ({
+      const result = expiredStatuses.map((status) => ({
         ...status.toJSON(),
-        daysExpired: Math.abs(status.days_until_expiration) || 0
+        daysExpired: Math.abs(status.days_until_expiration) || 0,
       }));
 
       res.json({
@@ -198,127 +199,123 @@ router.get(
           expiredUsers: result,
           summary: {
             total: result.length,
-            averageDaysExpired: result.reduce((sum, s) => sum + s.daysExpired, 0) / result.length
-          }
+            averageDaysExpired:
+              result.reduce((sum, s) => sum + s.daysExpired, 0) / result.length,
+          },
         },
         pagination: {
           limit: parseInt(limit),
           offset: parseInt(offset),
-          hasMore: result.length === parseInt(limit)
-        }
+          hasMore: result.length === parseInt(limit),
+        },
       });
-
     } catch (error) {
-      console.error('Error getting expired KYC statuses:', error);
+      console.error("Error getting expired KYC statuses:", error);
       res.status(500).json({
         success: false,
-        message: error.message
+        message: error.message,
       });
     }
-  }
+  },
 );
 
 // GET /api/kyc-status/statistics
 // Get KYC status statistics
 router.get(
-  '/statistics',
-  authService.authenticate(true), // Require admin authentication
+  "/statistics",
+  sep10Auth.authenticateAdmin(), // Require SEP-10 admin authentication
   async (req, res) => {
     try {
       const stats = await kycWorker.getDailyStatistics();
 
       res.json({
         success: true,
-        data: stats
+        data: stats,
       });
-
     } catch (error) {
-      console.error('Error getting KYC statistics:', error);
+      console.error("Error getting KYC statistics:", error);
       res.status(500).json({
         success: false,
-        message: error.message
+        message: error.message,
       });
     }
-  }
+  },
 );
 
 // POST /api/kyc-status/worker/start
 // Start the KYC expiration worker
 router.post(
-  '/worker/start',
-  authService.authenticate(true), // Require admin authentication
+  "/worker/start",
+  sep10Auth.authenticateAdmin(), // Require SEP-10 admin authentication
   async (req, res) => {
     try {
       await kycWorker.start();
-      
+
       res.json({
         success: true,
-        message: 'KYC expiration worker started'
+        message: "KYC expiration worker started",
       });
-
     } catch (error) {
-      console.error('Error starting KYC expiration worker:', error);
+      console.error("Error starting KYC expiration worker:", error);
       res.status(500).json({
         success: false,
-        message: error.message
+        message: error.message,
       });
     }
-  }
+  },
 );
 
 // POST /api/kyc-status/worker/stop
 // Stop the KYC expiration worker
 router.post(
-  '/worker/stop',
-  authService.authenticate(true), // Require admin authentication
+  "/worker/stop",
+  sep10Auth.authenticateAdmin(), // Require SEP-10 admin authentication
   async (req, res) => {
     try {
       await kycWorker.stop();
-      
+
       res.json({
         success: true,
-        message: 'KYC expiration worker stopped'
+        message: "KYC expiration worker stopped",
       });
-
     } catch (error) {
-      console.error('Error stopping KYC expiration worker:', error);
+      console.error("Error stopping KYC expiration worker:", error);
       res.status(500).json({
         success: false,
-        message: error.message
+        message: error.message,
       });
     }
-  }
+  },
 );
 
 // POST /api/kyc-status/worker/check
 // Manually trigger expiration check
 router.post(
-  '/worker/check',
-  authService.authenticate(true), // Require admin authentication
+  "/worker/check",
+  sep10Auth.authenticateAdmin(), // Require SEP-10 admin authentication
   async (req, res) => {
     try {
       await kycWorker.checkExpiringStatuses();
-      
+
       res.json({
         success: true,
-        message: 'Manual expiration check completed'
+        message: "Manual expiration check completed",
       });
-
     } catch (error) {
-      console.error('Error triggering manual expiration check:', error);
+      console.error("Error triggering manual expiration check:", error);
       res.status(500).json({
         success: false,
-        message: error.message
+        message: error.message,
       });
     }
-  }
+  },
 );
 
 // POST /api/kyc-status/:kycId/soft-lock
 // Apply soft lock to a user's KYC status
 router.post(
-  '/:kycId/soft-lock',
-  authService.authenticate(true), // Require admin authentication
+  "/:kycId/soft-lock",
+  sep10Auth.authenticateAdmin(), // Require SEP-10 admin authentication
   async (req, res) => {
     try {
       const { kycId } = req.params;
@@ -327,16 +324,16 @@ router.post(
       if (!reason) {
         return res.status(400).json({
           success: false,
-          message: 'Reason is required for soft lock'
+          message: "Reason is required for soft lock",
         });
       }
 
       const kycStatus = await KycStatus.findByPk(kycId);
-      
+
       if (!kycStatus) {
         return res.status(404).json({
           success: false,
-          message: 'KYC status not found'
+          message: "KYC status not found",
         });
       }
 
@@ -344,35 +341,34 @@ router.post(
 
       res.json({
         success: true,
-        message: `Soft lock applied: ${reason}`
+        message: `Soft lock applied: ${reason}`,
       });
-
     } catch (error) {
-      console.error('Error applying soft lock:', error);
+      console.error("Error applying soft lock:", error);
       res.status(500).json({
         success: false,
-        message: error.message
+        message: error.message,
       });
     }
-  }
+  },
 );
 
 // POST /api/kyc-status/:kycId/remove-soft-lock
 // Remove soft lock from a user's KYC status
 router.post(
-  '/:kycId/remove-soft-lock',
-  authService.authenticate(true), // Require admin authentication
+  "/:kycId/remove-soft-lock",
+  sep10Auth.authenticateAdmin(), // Require SEP-10 admin authentication
   async (req, res) => {
     try {
       const { kycId } = req.params;
       const { reason } = req.body;
 
       const kycStatus = await KycStatus.findByPk(kycId);
-      
+
       if (!kycStatus) {
         return res.status(404).json({
           success: false,
-          message: 'KYC status not found'
+          message: "KYC status not found",
         });
       }
 
@@ -380,42 +376,41 @@ router.post(
 
       res.json({
         success: true,
-        message: `Soft lock removed: ${reason}`
+        message: `Soft lock removed: ${reason}`,
       });
-
     } catch (error) {
-      console.error('Error removing soft lock:', error);
+      console.error("Error removing soft lock:", error);
       res.status(500).json({
         success: false,
-        message: error.message
+        message: error.message,
       });
     }
-  }
+  },
 );
 
 // POST /api/kyc-status/:kycId/update-risk-score
 // Update risk score for a user's KYC status
 router.post(
-  '/:kycId/update-risk-score',
-  authService.authenticate(true), // Require admin authentication
+  "/:kycId/update-risk-score",
+  sep10Auth.authenticateAdmin(), // Require SEP-10 admin authentication
   async (req, res) => {
     try {
       const { kycId } = req.params;
       const { riskScore } = req.body;
 
-      if (typeof riskScore !== 'number' || riskScore < 0 || riskScore > 1) {
+      if (typeof riskScore !== "number" || riskScore < 0 || riskScore > 1) {
         return res.status(400).json({
           success: false,
-          message: 'Risk score must be a number between 0 and 1'
+          message: "Risk score must be a number between 0 and 1",
         });
       }
 
       const kycStatus = await KycStatus.findByPk(kycId);
-      
+
       if (!kycStatus) {
         return res.status(404).json({
           success: false,
-          message: 'KYC status not found'
+          message: "KYC status not found",
         });
       }
 
@@ -423,48 +418,46 @@ router.post(
 
       res.json({
         success: true,
-        message: `Risk score updated to ${riskScore}`
+        message: `Risk score updated to ${riskScore}`,
       });
-
     } catch (error) {
-      console.error('Error updating risk score:', error);
+      console.error("Error updating risk score:", error);
       res.status(500).json({
         success: false,
-        message: error.message
+        message: error.message,
       });
     }
-  }
+  },
 );
 
 // GET /api/kyc-status/worker/status
 // Get worker status
 router.get(
-  '/worker/status',
-  authService.authenticate(true), // Require admin authentication
+  "/worker/status",
+  sep10Auth.authenticateAdmin(), // Require SEP-10 admin authentication
   async (req, res) => {
     try {
       const status = kycWorker.getStatus();
-      
+
       res.json({
         success: true,
-        data: status
+        data: status,
       });
-
     } catch (error) {
-      console.error('Error getting worker status:', error);
+      console.error("Error getting worker status:", error);
       res.status(500).json({
         success: false,
-        message: error.message
+        message: error.message,
       });
     }
-  }
+  },
 );
 
 // GET /api/kyc-status/compliance-report
 // Generate compliance report
 router.get(
-  '/compliance-report',
-  authService.authenticate(true), // Require admin authentication
+  "/compliance-report",
+  sep10Auth.authenticateAdmin(), // Require SEP-10 admin authentication
   async (req, res) => {
     try {
       const { days = 30 } = req.query;
@@ -472,12 +465,12 @@ router.get(
       if (isNaN(days) || days < 1 || days > 90) {
         return res.status(400).json({
           success: false,
-          message: 'Days parameter must be between 1 and 90'
+          message: "Days parameter must be between 1 and 90",
         });
       }
 
       const stats = await kycWorker.getDailyStatistics();
-      
+
       // Generate compliance report
       const reportData = {
         reportPeriod: days,
@@ -489,24 +482,23 @@ router.get(
           expiredUsers: stats.expiredUsers,
           complianceRate: stats.complianceRate,
           softLockedUsers: stats.softLocked,
-          riskDistribution: await this.getRiskDistribution()
+          riskDistribution: await this.getRiskDistribution(),
         },
-        recommendations: this.generateComplianceRecommendations(stats)
+        recommendations: this.generateComplianceRecommendations(stats),
       };
 
       res.json({
         success: true,
-        data: reportData
+        data: reportData,
       });
-
     } catch (error) {
-      console.error('Error generating compliance report:', error);
+      console.error("Error generating compliance report:", error);
       res.status(500).json({
         success: false,
-        message: error.message
+        message: error.message,
       });
     }
-  }
+  },
 );
 
 // Helper function to get risk distribution
@@ -514,14 +506,17 @@ async function getRiskDistribution() {
   try {
     const riskBreakdown = await KycStatus.findAll({
       attributes: [
-        'risk_level',
-        [require('sequelize').fn('COUNT', require('sequelize').col('id')), 'count']
+        "risk_level",
+        [
+          require("sequelize").fn("COUNT", require("sequelize").col("id")),
+          "count",
+        ],
       ],
       where: {
-        is_active: true
+        is_active: true,
       },
-      group: ['risk_level'],
-      raw: true
+      group: ["risk_level"],
+      raw: true,
     });
 
     return riskBreakdown.reduce((acc, item) => {
@@ -529,7 +524,7 @@ async function getRiskDistribution() {
       return acc;
     }, {});
   } catch (error) {
-    console.error('Error getting risk distribution:', error);
+    console.error("Error getting risk distribution:", error);
     return {};
   }
 }
@@ -540,59 +535,59 @@ function generateComplianceRecommendations(stats) {
 
   if (stats.expiredUsers > 0) {
     recommendations.push({
-      type: 'compliance_action',
-      priority: 'critical',
-      title: 'Expired KYC Statuses Require Attention',
+      type: "compliance_action",
+      priority: "critical",
+      title: "Expired KYC Statuses Require Attention",
       description: `${stats.expiredUsers} users have expired KYC verification. Immediate action required to restore account access and ensure compliance.`,
       actionItems: [
-        'Reach out to expired users with re-verification instructions',
-        'Consider temporary restrictions until re-verification is complete',
-        'Review verification process for potential issues causing expirations',
-        'Update risk scores for expired users to maximum'
-      ]
+        "Reach out to expired users with re-verification instructions",
+        "Consider temporary restrictions until re-verification is complete",
+        "Review verification process for potential issues causing expirations",
+        "Update risk scores for expired users to maximum",
+      ],
     });
   }
 
   if (stats.softLockedUsers > 0) {
     recommendations.push({
-      type: 'compliance_review',
-      priority: 'high',
-      title: 'Soft-Locked Users Require Review',
+      type: "compliance_review",
+      priority: "high",
+      title: "Soft-Locked Users Require Review",
       description: `${stats.softLockedUsers} users are currently soft-locked. Review the circumstances and determine if additional restrictions are necessary.`,
       actionItems: [
-        'Review soft-lock reasons and timing',
-        'Assess if soft-lock criteria are appropriate',
-        'Consider graduated unlock process based on risk assessment'
-      ]
+        "Review soft-lock reasons and timing",
+        "Assess if soft-lock criteria are appropriate",
+        "Consider graduated unlock process based on risk assessment",
+      ],
     });
   }
 
   if (stats.complianceRate < 95) {
     recommendations.push({
-      type: 'process_improvement',
-      priority: 'medium',
-      title: 'Low Compliance Rate Detected',
+      type: "process_improvement",
+      priority: "medium",
+      title: "Low Compliance Rate Detected",
       description: `Current compliance rate is ${stats.complianceRate}%. Consider improving the KYC verification process or user education.`,
       actionItems: [
-        'Analyze common reasons for verification failures',
-        'Improve user guidance and support documentation',
-        'Consider automated reminders for expiring KYC'
-      ]
+        "Analyze common reasons for verification failures",
+        "Improve user guidance and support documentation",
+        "Consider automated reminders for expiring KYC",
+      ],
     });
   }
 
   if (stats.pendingUsers > stats.totalUsers * 0.1) {
     recommendations.push({
-      type: 'user_engagement',
-      priority: 'medium',
-      title: 'High Number of Pending KYC',
+      type: "user_engagement",
+      priority: "medium",
+      title: "High Number of Pending KYC",
       description: `${stats.pendingUsers} users (${((stats.pendingUsers / stats.totalUsers) * 100).toFixed(1)}%) have pending KYC verification. This may impact user experience and compliance.`,
       actionItems: [
-        'Send reminder notifications for pending verifications',
-        'Offer additional support channels for KYC completion',
-        'Identify and address common verification barriers',
-        'Consider simplifying the verification process'
-      ]
+        "Send reminder notifications for pending verifications",
+        "Offer additional support channels for KYC completion",
+        "Identify and address common verification barriers",
+        "Consider simplifying the verification process",
+      ],
     });
   }
 
@@ -604,11 +599,17 @@ function generateComplianceRecommendations(stats) {
 // GET /api/kyc-status/admin/kyc/pending
 // Get all pending KYC applications for manual review
 router.get(
-  '/admin/kyc/pending',
-  authService.authenticate(true), // Require admin authentication
+  "/admin/kyc/pending",
+  sep10Auth.authenticateAdmin(), // Require SEP-10 admin authentication
   async (req, res) => {
     try {
-      const { page = 1, limit = 20, riskLevel, sortBy = 'created_at', sortOrder = 'DESC' } = req.query;
+      const {
+        page = 1,
+        limit = 20,
+        riskLevel,
+        sortBy = "created_at",
+        sortOrder = "DESC",
+      } = req.query;
 
       // Validate pagination
       const pageNum = parseInt(page);
@@ -616,14 +617,14 @@ router.get(
       if (pageNum < 1 || limitNum < 1 || limitNum > 100) {
         return res.status(400).json({
           success: false,
-          message: 'Invalid pagination parameters'
+          message: "Invalid pagination parameters",
         });
       }
 
       // Build where clause
       const whereClause = {
-        kyc_status: 'PENDING',
-        is_active: true
+        kyc_status: "PENDING",
+        is_active: true,
       };
 
       if (riskLevel) {
@@ -632,29 +633,37 @@ router.get(
 
       // Build order clause
       const orderClause = [];
-      const validSortFields = ['created_at', 'updated_at', 'risk_level', 'user_address'];
+      const validSortFields = [
+        "created_at",
+        "updated_at",
+        "risk_level",
+        "user_address",
+      ];
       if (validSortFields.includes(sortBy)) {
-        orderClause.push([sortBy, sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC']);
+        orderClause.push([
+          sortBy,
+          sortOrder.toUpperCase() === "ASC" ? "ASC" : "DESC",
+        ]);
       } else {
-        orderClause.push(['created_at', 'DESC']);
+        orderClause.push(["created_at", "DESC"]);
       }
 
       const { count, rows } = await KycStatus.findAndCountAll({
         where: whereClause,
         include: [
           {
-            model: require('../models').User,
-            as: 'user',
+            model: require("../models").User,
+            as: "user",
             required: false,
-            attributes: ['address', 'email']
-          }
+            attributes: ["address", "email"],
+          },
         ],
         order: orderClause,
         limit: limitNum,
         offset: (pageNum - 1) * limitNum,
         attributes: {
-          exclude: ['id_document_image', 'proof_of_address_image'] // Don't send sensitive images
-        }
+          exclude: ["id_document_image", "proof_of_address_image"], // Don't send sensitive images
+        },
       });
 
       res.json({
@@ -665,26 +674,25 @@ router.get(
             currentPage: pageNum,
             totalPages: Math.ceil(count / limitNum),
             totalItems: count,
-            itemsPerPage: limitNum
-          }
-        }
+            itemsPerPage: limitNum,
+          },
+        },
       });
-
     } catch (error) {
-      console.error('Error getting pending KYC applications:', error);
+      console.error("Error getting pending KYC applications:", error);
       res.status(500).json({
         success: false,
-        message: error.message
+        message: error.message,
       });
     }
-  }
+  },
 );
 
 // POST /api/kyc-status/admin/kyc/approve
 // Manually approve or reject a KYC application
 router.post(
-  '/admin/kyc/approve',
-  authService.authenticate(true), // Require admin authentication
+  "/admin/kyc/approve",
+  sep10Auth.authenticateAdmin(), // Require SEP-10 admin authentication
   async (req, res) => {
     try {
       const { kycId, action, reason, notes } = req.body;
@@ -693,14 +701,14 @@ router.post(
       if (!kycId || !action) {
         return res.status(400).json({
           success: false,
-          message: 'kycId and action are required'
+          message: "kycId and action are required",
         });
       }
 
-      if (!['approve', 'reject'].includes(action)) {
+      if (!["approve", "reject"].includes(action)) {
         return res.status(400).json({
           success: false,
-          message: 'Action must be either "approve" or "reject"'
+          message: 'Action must be either "approve" or "reject"',
         });
       }
 
@@ -709,29 +717,29 @@ router.post(
       if (!kycStatus) {
         return res.status(404).json({
           success: false,
-          message: 'KYC application not found'
+          message: "KYC application not found",
         });
       }
 
-      if (kycStatus.kyc_status !== 'PENDING') {
+      if (kycStatus.kyc_status !== "PENDING") {
         return res.status(400).json({
           success: false,
-          message: 'KYC application is not in PENDING status'
+          message: "KYC application is not in PENDING status",
         });
       }
 
       // Update the KYC status
-      const newStatus = action === 'approve' ? 'VERIFIED' : 'REJECTED';
+      const newStatus = action === "approve" ? "VERIFIED" : "REJECTED";
       const updateData = {
         kyc_status: newStatus,
         manual_review_date: new Date(),
         manual_review_reason: reason,
         manual_review_notes: notes,
-        reviewed_by: req.user?.address || 'admin' // Assuming auth middleware sets req.user
+        reviewed_by: req.user?.address || "admin", // Assuming auth middleware sets req.user
       };
 
       // Set expiration date for approved applications (5 years from now)
-      if (action === 'approve') {
+      if (action === "approve") {
         const expirationDate = new Date();
         expirationDate.setFullYear(expirationDate.getFullYear() + 5);
         updateData.expiration_date = expirationDate;
@@ -740,16 +748,17 @@ router.post(
       await kycStatus.update(updateData);
 
       // Create notification for the user
-      const notificationService = require('../services/notificationService');
-      const notificationMessage = action === 'approve'
-        ? 'Your KYC application has been approved. You now have full access to the platform.'
-        : `Your KYC application has been rejected. Reason: ${reason || 'Manual review'}`;
+      const notificationService = require("../services/notificationService");
+      const notificationMessage =
+        action === "approve"
+          ? "Your KYC application has been approved. You now have full access to the platform."
+          : `Your KYC application has been rejected. Reason: ${reason || "Manual review"}`;
 
       await notificationService.createKycNotification(
         kycStatus.id,
-        action === 'approve' ? 'KYC_APPROVED' : 'KYC_REJECTED',
+        action === "approve" ? "KYC_APPROVED" : "KYC_REJECTED",
         notificationMessage,
-        'admin_manual_review'
+        "admin_manual_review",
       );
 
       res.json({
@@ -758,18 +767,17 @@ router.post(
         data: {
           kycId,
           newStatus,
-          reviewedAt: updateData.manual_review_date
-        }
+          reviewedAt: updateData.manual_review_date,
+        },
       });
-
     } catch (error) {
-      console.error('Error processing KYC approval:', error);
+      console.error("Error processing KYC approval:", error);
       res.status(500).json({
         success: false,
-        message: error.message
+        message: error.message,
       });
     }
-  }
+  },
 );
 
 // ── ZK-PROOF GENERATION ENDPOINTS ─────────────────────────────────────────────
@@ -777,8 +785,8 @@ router.post(
 // POST /api/kyc-status/zk-proof
 // Generate ZK-proof for verified user proving age >= 18 without revealing birthdate
 router.post(
-  '/zk-proof',
-  authService.authenticate(true), // Require authentication
+  "/zk-proof",
+  sep10Auth.authenticate(), // Require SEP-10 JWT authentication
   async (req, res) => {
     try {
       const { userAddress } = req.body;
@@ -787,26 +795,26 @@ router.post(
       if (!userAddress) {
         return res.status(400).json({
           success: false,
-          message: 'userAddress is required'
+          message: "userAddress is required",
         });
       }
 
       // Get user's KYC status to ensure they are verified
       const kycStatus = await KycStatus.findOne({
-        where: { user_address: userAddress }
+        where: { user_address: userAddress },
       });
 
       if (!kycStatus) {
         return res.status(404).json({
           success: false,
-          message: 'KYC status not found for this user'
+          message: "KYC status not found for this user",
         });
       }
 
-      if (kycStatus.kyc_status !== 'VERIFIED') {
+      if (kycStatus.kyc_status !== "VERIFIED") {
         return res.status(403).json({
           success: false,
-          message: 'User must have VERIFIED KYC status to generate ZK-proof'
+          message: "User must have VERIFIED KYC status to generate ZK-proof",
         });
       }
 
@@ -814,7 +822,7 @@ router.post(
       if (!kycStatus.birth_date) {
         return res.status(400).json({
           success: false,
-          message: 'User birth date is required for age verification proof'
+          message: "User birth date is required for age verification proof",
         });
       }
 
@@ -823,28 +831,27 @@ router.post(
         userAddress: kycStatus.user_address,
         birthDate: kycStatus.birth_date,
         firstName: kycStatus.first_name,
-        lastName: kycStatus.last_name
+        lastName: kycStatus.last_name,
       };
 
       // Generate ZK-proof
-      const ZKProofService = require('../services/zkProofService');
+      const ZKProofService = require("../services/zkProofService");
       const zkService = new ZKProofService();
       const proofResult = await zkService.generateAgeProof(userData);
 
       res.json({
         success: true,
-        message: 'ZK-proof generated successfully',
-        data: proofResult
+        message: "ZK-proof generated successfully",
+        data: proofResult,
       });
-
     } catch (error) {
-      console.error('Error generating ZK-proof:', error);
+      console.error("Error generating ZK-proof:", error);
       res.status(500).json({
         success: false,
-        message: error.message || 'Failed to generate ZK-proof'
+        message: error.message || "Failed to generate ZK-proof",
       });
     }
-  }
+  },
 );
 
 module.exports = router;
