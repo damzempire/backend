@@ -41,6 +41,7 @@ const DAOProposal = require("./daoProposal");
 const DAOVote = require("./daoVote");
 const ContractUpgradeSignature = require("./contractUpgradeSignature");
 const ContractUpgradeAuditLog = require("./contractUpgradeAuditLog");
+const SorobanEvent = require("./sorobanEvent");
 
 const { Token, initTokenModel } = require("./token");
 const {
@@ -96,6 +97,7 @@ const models = {
   LienMilestone,
   DAOProposal,
   DAOVote,
+  SorobanEvent,
   sequelize,
 };
 

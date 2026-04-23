@@ -432,6 +432,12 @@ app.use("/api/batch-claims", require('./routes/batchClaims'));
 // Mount partner management routes (institutional partner API access)
 app.use("/api/partners", require('./routes/partnerManagement'));
 
+// Mount Soroban events routes (event indexing and monitoring)
+app.use("/api/soroban-events", require('./routes/sorobanEvents'));
+
+// Mount ledger reorg management routes (reorg detection and resync)
+app.use("/api/ledger-reorg", require('./routes/ledgerReorg'));
+
 // Historical price tracking job management endpoints
 app.post("/api/admin/jobs/historical-prices/start", async (req, res) => {
   try {
@@ -2354,6 +2360,38 @@ const startServer = async () => {
       console.log("Stellar Path Payment Listener started successfully.");
     } catch (listenerError) {
       console.error("Failed to initialize Stellar Path Payment Listener:", listenerError);
+    }
+
+    // Initialize Soroban Event Poller Service
+    try {
+      const SorobanEventPollerService = require('./services/sorobanEventPollerService');
+      const SorobanEventProcessor = require('./services/sorobanEventProcessor');
+      
+      const sorobanEventPoller = new SorobanEventPollerService({
+        pollInterval: parseInt(process.env.SOROBAN_POLL_INTERVAL) || 30000,
+        batchSize: parseInt(process.env.SOROBAN_BATCH_SIZE) || 100,
+        contractAddresses: process.env.SOROBAN_CONTRACT_ADDRESSES ? 
+          process.env.SOROBAN_CONTRACT_ADDRESSES.split(',') : []
+      });
+      
+      const sorobanEventProcessor = new SorobanEventProcessor({
+        batchSize: parseInt(process.env.SOROBAN_PROCESSOR_BATCH_SIZE) || 50,
+        processingDelay: parseInt(process.env.SOROBAN_PROCESSOR_DELAY) || 1000
+      });
+      
+      // Start both services
+      await sorobanEventPoller.start();
+      await sorobanEventProcessor.startProcessing();
+      
+      console.log("Soroban Event Poller and Processor services started successfully.");
+      
+      // Store services globally for access in routes
+      global.sorobanEventPoller = sorobanEventPoller;
+      global.sorobanEventProcessor = sorobanEventProcessor;
+      
+    } catch (sorobanError) {
+      console.error("Failed to initialize Soroban Event services:", sorobanError);
+      console.log("Continuing without Soroban event indexing...");
     }
 
     // Start HTTP server
