@@ -175,6 +175,7 @@ const historicalPriceTrackingJob = require("./jobs/historicalPriceTrackingJob");
 const integrityMonitoringJob = require("./jobs/integrityMonitoringJob");
 const vaultRegistryIndexingJob = require("./jobs/vaultRegistryIndexingJob");
 const vaultBalanceMonitoringJob = require("./jobs/vaultBalanceMonitoringJob");
+const claimWebhookListenerService = require("./services/claimWebhookListenerService");
 const stellarPathPaymentListener = require("./services/stellarPathPaymentListener");
 const kycExpirationWorker = require("./jobs/kycExpirationWorker");
 
@@ -2390,6 +2391,14 @@ const startServer = async () => {
       console.log("Vault Balance Monitoring Job started successfully.");
     } catch (jobError) {
       console.error("Failed to initialize Vault Balance Monitoring Job:", jobError);
+    }
+
+    // Initialize claim webhook listener
+    try {
+      claimWebhookListenerService.start();
+      console.log("Claim Webhook Listener started successfully.");
+    } catch (listenerError) {
+      console.error("Failed to initialize Claim Webhook Listener:", listenerError);
     }
 
     // Initialize Stellar Path Payment Listener
