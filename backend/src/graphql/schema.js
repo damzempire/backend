@@ -1,4 +1,5 @@
 const { gql } = require('apollo-server-express');
+const capTableTypeDefs = require('./capTableSchema');
 
 const typeDefs = gql`
   scalar Date
@@ -175,4 +176,7 @@ const typeDefs = gql`
   }
 `;
 
-module.exports = { typeDefs };
+// Combine main typeDefs with cap table extensions
+const extendedTypeDefs = [typeDefs, capTableTypeDefs];
+
+module.exports = { typeDefs: extendedTypeDefs };
