@@ -132,6 +132,8 @@ const models = {
   DAOVote,
   TicketType,
   SorobanEvent,
+  GrantPriceSnapshot,
+  RoiCalculation,
   sequelize,
 };
 
