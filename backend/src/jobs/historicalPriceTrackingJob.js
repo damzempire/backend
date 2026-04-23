@@ -16,7 +16,8 @@ class HistoricalPriceTrackingJob {
       successfulRuns: 0,
       failedRuns: 0,
       milestonesGenerated: 0,
-      pricesBackfilled: 0
+      pricesBackfilled: 0,
+      dailyPricesSynced: 0
     };
   }
 
@@ -76,7 +77,11 @@ class HistoricalPriceTrackingJob {
       const pricesBackfilled = await this.backfillMissingPrices();
       this.stats.pricesBackfilled += pricesBackfilled;
 
-      // Step 3: Generate cost basis reports for completed years
+      // Step 3: Sync daily prices for all tokens (SEP-40)
+      const dailyPriceSyncResults = await historicalPriceTrackingService.syncDailyPricesForAllTokens();
+      this.stats.dailyPricesSynced += dailyPriceSyncResults.success;
+
+      // Step 4: Generate cost basis reports for completed years
       const reportsGenerated = await this.generateCostBasisReports();
 
       const duration = Date.now() - startTime;

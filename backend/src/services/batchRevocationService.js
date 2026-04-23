@@ -3,6 +3,7 @@
 const { sequelize } = require('../database/connection');
 const { Vault, Beneficiary, SubSchedule } = require('../models');
 const auditLogger = require('./auditLogger');
+const AuditService = require('./auditService');
 const vestingService = require('./vestingService');
 
 /**
@@ -93,6 +94,15 @@ class BatchRevocationService {
         total_unvested_returned: totalUnvestedReturned,
         total_vested_paid: totalVestedPaid,
         beneficiary_addresses: beneficiaryAddresses,
+      });
+
+      // Immutable Audit Log
+      await AuditService.logAction({
+        adminPubkey: adminAddress,
+        action: AuditService.ACTIONS.REVOKE_GRANT,
+        ipAddress: 'unknown',
+        payload: { vaultAddress, beneficiaryAddresses, reason, treasuryAddress },
+        resourceId: vaultAddress
       });
 
       return {
