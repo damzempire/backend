@@ -2297,6 +2297,16 @@ const startServer = async () => {
       console.log('Continuing with REST API only...');
     }
 
+    // Initialize Dashboard Gateway for enhanced real-time updates
+    try {
+      const DashboardGateway = require('./websocket/dashboard-gateway.gateway');
+      const dashboardGateway = new DashboardGateway(httpServer);
+      console.log('Dashboard Gateway initialized successfully.');
+    } catch (gatewayError) {
+      console.error('Failed to initialize Dashboard Gateway:', gatewayError);
+      console.log('Continuing without enhanced dashboard features...');
+    }
+
     // Initialize Redis Cache
     try {
       await cacheService.connect();
