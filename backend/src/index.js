@@ -194,6 +194,7 @@ const contractUpgradeRoutes = require("./routes/contractUpgrade");
 const conversionAnalyticsRoutes = require("./routes/conversionAnalytics");
 const correlationRoutes = require("./routes/correlationRoutes");
 const futureLienRoutes = require("./routes/futureLienRoutes");
+const healthRoutes = require("./routes/healthRoutes");
 
 app.get("/", (req, res) => {
   res.json({ message: "Vesting Vault API is running!" });
@@ -202,6 +203,9 @@ app.get("/", (req, res) => {
 app.get("/health", (req, res) => {
   res.json({ status: "OK", timestamp: new Date().toISOString() });
 });
+
+// Mount sync health check routes
+app.use("/health", healthRoutes);
 
 // Enhanced health check with readiness probe
 app.get("/health/ready", async (req, res) => {
