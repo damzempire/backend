@@ -1,5 +1,7 @@
 const { ClaimsHistory, Vault, SubSchedule } = require('../models');
+const metricsService = require('./metricsService');
 const priceService = require('./priceService');
+
 const slackWebhookService = require('./slackWebhookService');
 const tvlService = require('./tvlService');
 const cacheService = require('./cacheService');
@@ -56,6 +58,12 @@ class IndexingService {
         }
         throw error;
       }
+
+      // Update metrics for indexed blocks
+      if (block_number) {
+        metricsService.totalIndexedBlocks.set(parseInt(block_number));
+      }
+
 
       console.log(`Processed claim ${transaction_hash} with price $${price_at_claim_usd}`);
 
@@ -575,6 +583,12 @@ Genesis sync performance has been optimized with bulk inserts.`;
       }
       throw error;
     }
+
+    // Update metrics for indexed blocks
+    if (block_number) {
+      metricsService.totalIndexedBlocks.set(parseInt(block_number));
+    }
+
 
     await vault.update({
       total_amount: parseFloat(vault.total_amount) + parseFloat(actualReceivedAmount),

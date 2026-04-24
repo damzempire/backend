@@ -25,6 +25,15 @@ const swaggerSpecs = require("./swagger/options");
 // Initialize OpenTelemetry BEFORE everything else
 require("./services/telemetryService");
 
+// Import Metrics and Queue services
+const metricsService = require("./services/metricsService");
+const { metricsMiddleware } = require("./middleware/metrics.middleware");
+const { globalRateLimiter, authRateLimiter } = require("./middleware/rateLimit.middleware");
+const queueService = require("./services/queueService");
+// Initialize worker
+require("./workers/heavyComputationWorker");
+
+
 dotenv.config();
 
 const app = express();
@@ -115,13 +124,15 @@ app.use(cors());
 app.use(express.json());
 app.use(require("cookie-parser")());
 
-// Record request start time for response time tracking
-const { recordRequestStart } = require('./middleware/partnerRateLimit.middleware');
-app.use(recordRequestStart);
+// Apply metrics middleware
+app.use(metricsMiddleware);
 
-// Apply partner rate limiting (before standard rate limiting)
-const { partnerRateLimitMiddleware } = require('./middleware/partnerRateLimit.middleware');
-app.use('/api', partnerRateLimitMiddleware);
+// Apply global rate limiting
+app.use(globalRateLimiter);
+
+// Apply strict rate limiting to auth routes
+app.use("/api/auth", authRateLimiter);
+
 
 // Apply wallet-based rate limiting to all API routes
 app.use("/api", walletRateLimitMiddleware);
@@ -269,8 +280,16 @@ app.get("/health", (req, res) => {
   res.json({ status: "OK", timestamp: new Date().toISOString() });
 });
 
-// Mount sync health check routes
-app.use("/health", healthRoutes);
+// Prometheus metrics endpoint
+app.get("/metrics", async (req, res) => {
+  try {
+    res.set("Content-Type", metricsService.register.contentType);
+    res.end(await metricsService.register.metrics());
+  } catch (err) {
+    res.status(500).end(err);
+  }
+});
+
 
 // Enhanced health check with readiness probe
 app.get("/health/ready", async (req, res) => {
@@ -1608,7 +1627,7 @@ app.get(
   },
 );
 
-// GET /api/vaults/:id/export - Export vault data as CSV
+// GET /api/vaults/:id/export - Export vault data as CSV (Offloaded to BullMQ)
 app.get("/api/vaults/:id/export", async (req, res) => {
   try {
     const { id } = req.params;
@@ -1628,16 +1647,11 @@ app.get("/api/vaults/:id/export", async (req, res) => {
     
     res.download(outputPath);
   } catch (error) {
-    console.error("Error exporting vault:", error);
-
-    // If headers haven't been sent yet, send JSON error response
-    if (!res.headersSent) {
-      res.status(500).json({ success: false, error: error.message });
-    } else {
-      res.destroy(error);
-    }
+    console.error("Error queueing CSV export:", error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
+
 // Balance query endpoint
 app.get("/api/vaults/:id/balance", async (req, res) => {
   try {
@@ -1667,7 +1681,7 @@ app.get("/api/vaults/:id/balance", async (req, res) => {
   }
 });
 
-// Vesting Agreement PDF endpoint
+// Vesting Agreement PDF endpoint (Offloaded to BullMQ)
 app.get("/api/vault/:id/agreement.pdf", async (req, res) => {
   try {
     const { id } = req.params;
@@ -1706,7 +1720,7 @@ app.get("/api/vault/:id/agreement.pdf", async (req, res) => {
       });
     }
 
-    // Get token information (assuming token address maps to token model)
+    // Get token information
     let token = null;
     if (vault.token_address) {
       token = await Token.findOne({
@@ -1739,19 +1753,14 @@ app.get("/api/vault/:id/agreement.pdf", async (req, res) => {
     
     res.download(outputPath);
   } catch (error) {
-    console.error("Error generating vesting agreement:", error);
-
-    // If headers haven't been sent yet, send JSON error response
-    if (!res.headersSent) {
-      res.status(500).json({
-        success: false,
-        error: error.message,
-      });
-    } else {
-      res.destroy(error);
-    }
+    console.error("Error queueing PDF generation:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
   }
 });
+
 
 // Token distribution endpoint for pie chart data
 app.get("/api/token/:address/distribution", async (req, res) => {
@@ -2176,28 +2185,50 @@ app.get("/api/statements/annual/:userAddress", async (req, res) => {
   }
 });
 
-// GET /api/statements/annual/:userAddress/:year/download - Download annual statement PDF
+// GET /api/statements/annual/:userAddress/:year/download - Download annual statement PDF (Offloaded to BullMQ)
 app.get("/api/statements/annual/:userAddress/:year/download", async (req, res) => {
   try {
     const { userAddress, year } = req.params;
 
     const statement = await annualVestingStatementService.getStatement(userAddress, parseInt(year));
-    await annualStatementPDFService.streamAnnualStatement(statement.statement_data, parseInt(year), res);
+    const job = await queueService.addAnnualStatementJob(statement.statement_data, parseInt(year));
+    
+    res.json({ 
+      success: true, 
+      message: "Annual statement generation job queued", 
+      data: { jobId: job.id } 
+    });
   } catch (error) {
-    console.error("Error downloading annual statement:", error);
-    if (error.message.includes('not found')) {
-      res.status(404).json({
-        success: false,
-        error: error.message,
-      });
-    } else {
-      res.status(500).json({
-        success: false,
-        error: error.message,
-      });
-    }
+    console.error("Error queueing annual statement:", error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
+
+// GET /api/jobs/:id - Check job status
+app.get("/api/jobs/:id", async (req, res) => {
+  try {
+    const status = await queueService.getJobStatus(req.params.id);
+    if (!status) {
+      return res.status(404).json({ success: false, error: "Job not found" });
+    }
+    res.json({ success: true, data: status });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/exports/download/:filename - Download generated file
+app.get("/api/exports/download/:filename", (req, res) => {
+  const filename = req.params.filename;
+  const filePath = path.join(__dirname, "../exports", filename);
+  
+  if (fs.existsSync(filePath)) {
+    res.download(filePath);
+  } else {
+    res.status(404).json({ success: false, error: "File not found or expired" });
+  }
+});
+
 
 // POST /api/statements/annual/verify - Verify statement authenticity
 app.post("/api/statements/annual/verify", async (req, res) => {
@@ -2575,6 +2606,25 @@ const startServer = async () => {
     } catch (listenerError) {
       console.error("Failed to initialize Stellar Path Payment Listener:", listenerError);
     }
+    // Start background metrics collection
+    setInterval(async () => {
+      try {
+        const { activeDbConnections, totalIndexedBlocks } = metricsService;
+        const { writeSequelize } = require('./database/connection');
+        if (writeSequelize && writeSequelize.connectionManager && writeSequelize.connectionManager.pool) {
+          const activeConnections = writeSequelize.connectionManager.pool.size - writeSequelize.connectionManager.pool.available;
+          activeDbConnections.set(activeConnections);
+        }
+        
+        const { ClaimsHistory } = require('./models');
+        const maxBlock = await ClaimsHistory.max('block_number');
+        if (maxBlock) {
+          totalIndexedBlocks.set(parseInt(maxBlock));
+        }
+      } catch (error) {
+        console.error('Error updating metrics:', error);
+      }
+    }, 15000);
 
     // Initialize Soroban Event Poller Service
     try {
