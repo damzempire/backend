@@ -2,6 +2,13 @@ const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
 const http = require("http");
+const path = require("path");
+
+// Bridge to NestJS
+require('ts-node/register');
+const { bootstrapNest } = require('./nest-bootstrap');
+const { getQueueToken } = require('@nestjs/bullmq');
+const { ThrottlerService } = require('@nestjs/throttler');
 const { rateLimit } = require("express-rate-limit");
 const {
   walletRateLimitMiddleware,
@@ -30,6 +37,59 @@ require("./workers/heavyComputationWorker");
 dotenv.config();
 
 const app = express();
+
+// --- NestJS Integration Start ---
+let throttlerService;
+let pdfQueue;
+let exportQueue;
+
+const initNest = async () => {
+  const nestApp = await bootstrapNest(app);
+  throttlerService = nestApp.get(ThrottlerService);
+  pdfQueue = nestApp.get(getQueueToken('pdf-generation'));
+  exportQueue = nestApp.get(getQueueToken('csv-export'));
+  
+  // Expose queues to app for use in routes
+  app.set('pdfQueue', pdfQueue);
+  app.set('exportQueue', exportQueue);
+  
+  console.log('NestJS bridge established');
+};
+
+// Global rate limiting middleware using NestJS Throttler
+app.use(async (req, res, next) => {
+  if (!throttlerService) {
+    // If NestJS isn't ready yet, skip throttling (or wait)
+    return next();
+  }
+  
+  const ip = req.ip || req.get('x-forwarded-for') || req.socket.remoteAddress;
+  const isAuth = req.path.includes('/api/auth/');
+  
+  try {
+    const limit = isAuth ? 10 : 100;
+    const ttl = 60000;
+    const key = `throttle:${isAuth ? 'auth' : 'global'}:${ip}`;
+    
+    const { success } = await throttlerService.throttle({
+      limit,
+      ttl,
+      key,
+    });
+
+    if (!success) {
+      return res.status(429).json({
+        success: false,
+        error: "Too many requests. Please try again later.",
+      });
+    }
+    next();
+  } catch (e) {
+    console.error("Throttler error:", e);
+    next();
+  }
+});
+// --- NestJS Integration End ---
 
 Sentry.init({
   // Fallback to a dummy DSN so Sentry SDK doesn't disable itself when testing without credentials
@@ -1571,12 +1631,21 @@ app.get(
 app.get("/api/vaults/:id/export", async (req, res) => {
   try {
     const { id } = req.params;
-    const job = await queueService.addCSVJob(id);
-    res.json({ 
-      success: true, 
-      message: "CSV export job queued", 
-      data: { jobId: job.id } 
-    });
+    const exportQueue = req.app.get('exportQueue');
+    
+    // Offload CSV generation to BullMQ worker
+    const outputPath = path.join(__dirname, '../downloads', `export-${id}-${Date.now()}.csv`);
+    const job = await exportQueue.add('generate-csv', { vaultId: id, outputPath });
+    
+    // Wait for worker to finish (to keep compatibility but offload event loop)
+    await job.waitUntilFinished(new (require('bullmq').QueueEvents)('csv-export', {
+      connection: {
+        host: process.env.REDIS_HOST || 'localhost',
+        port: parseInt(process.env.REDIS_PORT || '6379'),
+      }
+    }));
+    
+    res.download(outputPath);
   } catch (error) {
     console.error("Error queueing CSV export:", error);
     res.status(500).json({ success: false, error: error.message });
@@ -1668,13 +1737,21 @@ app.get("/api/vault/:id/agreement.pdf", async (req, res) => {
       token: token,
     };
 
-    // Queue job instead of streaming directly
-    const job = await queueService.addPDFJob(vaultData);
-    res.json({ 
-      success: true, 
-      message: "PDF generation job queued", 
-      data: { jobId: job.id } 
-    });
+    // Generate and stream PDF via BullMQ offloading
+    const pdfQueue = req.app.get('pdfQueue');
+    const outputPath = path.join(__dirname, '../downloads', `agreement-${vaultData.vault.address}-${Date.now()}.pdf`);
+    
+    const job = await pdfQueue.add('generate-pdf', { vaultData, outputPath });
+    
+    // Wait for worker to finish (ensures main event loop is free while worker computes)
+    await job.waitUntilFinished(new (require('bullmq').QueueEvents)('pdf-generation', {
+      connection: {
+        host: process.env.REDIS_HOST || 'localhost',
+        port: parseInt(process.env.REDIS_PORT || '6379'),
+      }
+    }));
+    
+    res.download(outputPath);
   } catch (error) {
     console.error("Error queueing PDF generation:", error);
     res.status(500).json({
@@ -2372,6 +2449,9 @@ if (process.env.SENTRY_DSN && Sentry.Handlers) {
 
 const startServer = async () => {
   try {
+    // Initialize NestJS bridge first
+    await initNest();
+
     await sequelize.authenticate();
     console.log("Database connection established successfully.");
 
