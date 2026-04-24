@@ -1,6 +1,6 @@
-const annualVestingStatementService = require('../src/services/annualVestingStatementService');
-const { AnnualVestingStatement } = require('../src/models');
-const { sequelize } = require('../src/database/connection');
+const annualVestingStatementService = require('./annualVestingStatementService');
+const { AnnualVestingStatement } = require('../models');
+const { sequelize } = require('../database/connection');
 
 describe('Annual Vesting Statement Service', () => {
   beforeEach(async () => {
@@ -217,7 +217,7 @@ describe('Annual Vesting Statement Service', () => {
 });
 
 describe('Annual Statement PDF Service', () => {
-  const annualStatementPDFService = require('../src/services/annualStatementPDFService');
+  const annualStatementPDFService = require('./annualStatementPDFService');
 
   describe('generateAnnualStatement', () => {
     it('should generate PDF buffer successfully', async () => {

@@ -7,6 +7,7 @@ const Sentry = require('@sentry/node');
 const ClaimCalculator = require('./claimCalculator');
 const { TokenType } = require('../models/vault');
 const { InsufficientBalanceError } = require('../errors/VaultErrors');
+const crypto = require('crypto');
 
 const EventEmitter = require('events');
 const claimEventEmitter = new EventEmitter();
@@ -20,6 +21,7 @@ class IndexingService {
         amount_claimed,
         claim_timestamp,
         transaction_hash,
+        event_index = 0,
         block_number
       } = claimData;
 
@@ -30,15 +32,30 @@ class IndexingService {
       );
 
       // Create the claim record with price data
-      const claim = await ClaimsHistory.create({
-        user_address,
-        token_address,
-        amount_claimed,
-        claim_timestamp,
-        transaction_hash,
-        block_number,
-        price_at_claim_usd
-      });
+      let claim;
+      try {
+        claim = await ClaimsHistory.create({
+          user_address,
+          token_address,
+          amount_claimed,
+          claim_timestamp,
+          transaction_hash,
+          event_index,
+          block_number,
+          price_at_claim_usd
+        });
+      } catch (error) {
+        if (error.name === 'SequelizeUniqueConstraintError') {
+          const existing = await ClaimsHistory.findOne({
+            where: { transaction_hash, event_index }
+          });
+          if (existing) {
+            console.log(`Duplicate claim event detected: ${transaction_hash}:${event_index}, returning existing record`);
+            return existing;
+          }
+        }
+        throw error;
+      }
 
       console.log(`Processed claim ${transaction_hash} with price $${price_at_claim_usd}`);
 
@@ -59,7 +76,9 @@ class IndexingService {
       }
 
       // Emit internal claim event for WebSocket gateway
-      claimEventEmitter.emit('claim', claim.toJSON());
+      const confirmedClaimEvent = this.buildConfirmedClaimEvent(claim.toJSON(), claimData);
+      claimEventEmitter.emit('claim', confirmedClaimEvent);
+      claimEventEmitter.emit('tokensClaimed', confirmedClaimEvent);
 
       // Invalidate user portfolio cache after claim processing
       try {
@@ -70,26 +89,6 @@ class IndexingService {
         // Don't throw - cache invalidation failure shouldn't fail claim processing
       }
 
-      // Fire webhook POST for DAOs, but only if admin_address matches organization_id
-      const { OrganizationWebhook } = require('../models');
-      const { isAdminOfOrg } = require('../graphql/middleware/auth');
-      const axios = require('axios');
-      if (claim.organization_id && claim.admin_address) {
-        const isAdmin = await isAdminOfOrg(claim.admin_address, claim.organization_id);
-        if (isAdmin) {
-          const webhooks = await OrganizationWebhook.findAll({ where: { organization_id: claim.organization_id } });
-          for (const webhook of webhooks) {
-            try {
-              await axios.post(webhook.webhook_url, claim.toJSON());
-              console.log(`Webhook fired: ${webhook.webhook_url}`);
-            } catch (err) {
-              console.error(`Webhook failed: ${webhook.webhook_url}`, err);
-            }
-          }
-        } else {
-          console.warn('Webhook not fired: admin_address does not match organization_id');
-        }
-      }
       return claim;
     } catch (error) {
       console.error('Error processing claim:', error);
@@ -314,6 +313,77 @@ class IndexingService {
   };
 }
 
+  /**
+   * Optimized historical sync using bulk inserts for large datasets
+   * @param {Object} historicalData - Object containing arrays of claims, schedules, and vaults
+   * @param {Object} options - Additional options for bulk processing
+   * @returns {Promise<Object>} Results with performance metrics
+   */
+  async optimizedHistoricalSync(historicalData, options = {}) {
+    try {
+      console.log('Starting optimized historical sync with bulk inserts...');
+      
+      // Use the bulk insert service for optimal performance
+      const results = await bulkInsertService.optimizedHistoricalSync(historicalData, options);
+      
+      // Send summary alert for large sync operations
+      if (results.totalRecords > 10000) {
+        try {
+          await this.sendHistoricalSyncAlert(results);
+        } catch (alertError) {
+          console.error('Error sending historical sync alert:', alertError);
+          // Don't throw - alert failure shouldn't fail the sync
+        }
+      }
+      
+      return results;
+      
+    } catch (error) {
+      console.error('Error in optimized historical sync:', error);
+      Sentry.captureException(error, {
+        tags: { service: 'indexing', operation: 'optimizedHistoricalSync' },
+        extra: { 
+          totalClaims: historicalData.claims?.length || 0,
+          totalSchedules: historicalData.schedules?.length || 0,
+          totalVaults: historicalData.vaults?.length || 0
+        }
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Send alert for large historical sync operations
+   * @param {Object} results - Sync results
+   */
+  async sendHistoricalSyncAlert(results) {
+    try {
+      const message = `**Historical Sync Completed**
+
+**Total Records:** ${results.totalRecords.toLocaleString()}
+**Successfully Processed:** ${results.totalProcessed.toLocaleString()}
+**Errors:** ${results.totalErrors.toLocaleString()}
+**Duration:** ${(results.totalDuration / 1000).toFixed(2)} seconds
+**Success Rate:** ${((results.totalProcessed / results.totalRecords) * 100).toFixed(2)}%
+
+**Breakdown:**
+- Claims: ${results.claims ? `${results.claims.processed.toLocaleString()} processed, ${results.claims.errors.toLocaleString()} errors` : 'N/A'}
+- Schedules: ${results.schedules ? `${results.schedules.processed.toLocaleString()} processed, ${results.schedules.errors.toLocaleString()} errors` : 'N/A'}
+- Vaults: ${results.vaults ? `${results.vaults.processed.toLocaleString()} processed, ${results.vaults.errors.toLocaleString()} errors` : 'N/A'}
+
+Genesis sync performance has been optimized with bulk inserts.`;
+
+      await slackWebhookService.sendAlert(message, {
+        channel: '#alerts',
+        username: 'Historical Sync Monitor',
+        priority: 'medium'
+      });
+
+    } catch (error) {
+      console.error('Failed to send historical sync alert:', error);
+    }
+  }
+
   async backfillMissingPrices() {
   try {
     // Find all claims without price data
@@ -410,6 +480,7 @@ class IndexingService {
       vault_address,
       top_up_amount,
       transaction_hash,
+      event_index = 0,
       block_number,
       timestamp,
       cliff_duration = null,
@@ -477,18 +548,33 @@ class IndexingService {
 
     const endTimestamp = new Date(vestingStartDate.getTime() + (vesting_dur || 0) * 1000);
 
-    const subSchedule = await SubSchedule.create({
-      vault_id: vault.id,
-      top_up_amount: actualReceivedAmount,
-      transaction_hash: transaction_hash,
-      vesting_start_date: vestingStartDate,
-      start_timestamp: topUpTimestamp,
-      end_timestamp: endTimestamp,
-      cliff_duration: cliff_dur || 0,
-      cliff_date: cliffDate,
-      vesting_duration: vesting_dur || 0,
-      block_number
-    });
+    let subSchedule;
+    try {
+      subSchedule = await SubSchedule.create({
+        vault_id: vault.id,
+        top_up_amount: actualReceivedAmount,
+        transaction_hash: transaction_hash,
+        event_index,
+        vesting_start_date: vestingStartDate,
+        start_timestamp: topUpTimestamp,
+        end_timestamp: endTimestamp,
+        cliff_duration: cliff_dur || 0,
+        cliff_date: cliffDate,
+        vesting_duration: vesting_dur || 0,
+        block_number
+      });
+    } catch (error) {
+      if (error.name === 'SequelizeUniqueConstraintError') {
+        const existing = await SubSchedule.findOne({
+          where: { transaction_hash, event_index }
+        });
+        if (existing) {
+          console.log(`Duplicate top-up event detected: ${transaction_hash}:${event_index}, returning existing record`);
+          return existing;
+        }
+      }
+      throw error;
+    }
 
     await vault.update({
       total_amount: parseFloat(vault.total_amount) + parseFloat(actualReceivedAmount),
@@ -587,6 +673,34 @@ calculateSubScheduleReleasable(subSchedule, asOfDate = new Date()) {
   const releasable = totalVested - parseFloat(subSchedule.amount_released);
 
   return Math.max(0, releasable);
+}
+
+buildConfirmedClaimEvent(claimRecord, claimData = {}) {
+  const claimTimestamp = claimRecord.claim_timestamp || claimData.claim_timestamp || new Date().toISOString();
+  const eventId = crypto
+    .createHash('sha256')
+    .update(
+      [
+        claimRecord.transaction_hash,
+        claimRecord.user_address,
+        claimRecord.amount_claimed,
+        claimRecord.block_number,
+      ].join(':')
+    )
+    .digest('hex');
+
+  return {
+    ...claimRecord,
+    event_name: 'TokensClaimed',
+    event_id: eventId,
+    confirmed: true,
+    confirmed_at: new Date(claimTimestamp).toISOString(),
+    beneficiary_address: claimRecord.user_address,
+    amount: claimRecord.amount_claimed,
+    vault_address: claimData.vault_address || claimData.vaultAddress || null,
+    organization_id: claimData.organization_id || claimData.organizationId || null,
+    admin_address: claimData.admin_address || claimData.adminAddress || null,
+  };
 }
 }
 

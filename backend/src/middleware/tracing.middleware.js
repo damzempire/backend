@@ -23,7 +23,7 @@ try {
   uuid = () => require('crypto').randomUUID();
 }
 
-const tracer = require('./telemetryService').getTracer('express-middleware');
+const tracer = require('../services/telemetryService').getTracer('express-middleware');
 
 /**
  * Generate or extract TraceID from request

@@ -13,6 +13,7 @@ const { rateLimit } = require("express-rate-limit");
 const {
   walletRateLimitMiddleware,
 } = require("./middleware/wallet-ratelimit.middleware");
+const SEP12Module = require("./modules/sep12-kyc/sep12.module");
 
 const Sentry = require("@sentry/node");
 const { nodeProfilingIntegration } = require("@sentry/profiling-node");
@@ -95,6 +96,10 @@ const PORT = process.env.PORT || 4000;
 
 const httpServer = http.createServer(app);
 
+// Initialize Vesting Update WebSocket Server (Deferred to startServer)
+// const VestingUpdateWebSocket = require('./websocket/vesting-update.websocket');
+// const vestingUpdateWebSocket = new VestingUpdateWebSocket(httpServer);
+
 // Sentry request handler must be the first middleware (only if Sentry is properly configured)
 if (process.env.SENTRY_DSN && Sentry.Handlers) {
   app.use(Sentry.Handlers.requestHandler());
@@ -109,6 +114,14 @@ app.use(tracingMiddleware);
 app.use(cors());
 app.use(express.json());
 app.use(require("cookie-parser")());
+
+// Record request start time for response time tracking
+const { recordRequestStart } = require('./middleware/partnerRateLimit.middleware');
+app.use(recordRequestStart);
+
+// Apply partner rate limiting (before standard rate limiting)
+const { partnerRateLimitMiddleware } = require('./middleware/partnerRateLimit.middleware');
+app.use('/api', partnerRateLimitMiddleware);
 
 // Apply wallet-based rate limiting to all API routes
 app.use("/api", walletRateLimitMiddleware);
@@ -221,61 +234,17 @@ const vaultArchivalJob = require("./jobs/vaultArchivalJob");
 const historicalPriceTrackingJob = require("./jobs/historicalPriceTrackingJob");
 const integrityMonitoringJob = require("./jobs/integrityMonitoringJob");
 const vaultRegistryIndexingJob = require("./jobs/vaultRegistryIndexingJob");
+const vaultBalanceMonitoringJob = require("./jobs/vaultBalanceMonitoringJob");
+const claimWebhookListenerService = require("./services/claimWebhookListenerService");
 const stellarPathPaymentListener = require("./services/stellarPathPaymentListener");
-const batchRevocationService = require("./services/batchRevocationService");
+const kycExpirationWorker = require("./jobs/kycExpirationWorker");
+const gdprComplianceJob = require("./jobs/gdprComplianceJob");
 
-const KycStatus = require("./KycStatus");
-const KycNotification = require("./KycNotification");
-const ContractUpgradeProposal = require("./contractUpgradeProposal");
-const ContractUpgradeSignature = require("./contractUpgradeSignature");
-const ContractUpgradeAuditLog = require("./contractUpgradeAuditLog");
-const CertifiedBuild = require("./certifiedBuild");
-const ConversionEvent = require("./conversionEvent");
-const MilestoneCelebrationWebhook = require("./milestoneCelebrationWebhook");
-const {
-  Token,
-  initTokenModel
-} = require("./token");
+const { Token, initTokenModel } = models; // models already has these
+// Note: models/index.js already calls initTokenModel(sequelize)
 
-const models = {
-  ClaimsHistory,
-  Vault,
-  SubSchedule,
-  TVL,
-  Beneficiary,
-  Organization,
-  Notification,
-  RefreshToken,
-  RevocationProposal,
-  RevocationSignature,
-  MultiSigConfig,
-  DividendRound,
-  DividendDistribution,
-  DividendSnapshot,
-  DeviceToken,
-  VaultLegalDocument,
-  VaultLiquidityAlert,
-  AnnualVestingStatement,
-  VestingMilestone,
-  HistoricalTokenPrice,
-  HistoricalTVL,
-  CostBasisReport,
-  AuditorToken,
-  VaultRegistry,
-  Rule144Compliance,
-  TaxCalculation,
-  TaxJurisdiction,
-  KycStatus,
-  KycNotification,
-  ContractUpgradeProposal,
-  ContractUpgradeSignature,
-  ContractUpgradeAuditLog,
-  CertifiedBuild,
-  ConversionEvent,
-  MilestoneCelebrationWebhook,
-  Token,
-  sequelize
-}; initTokenModel
+// All models are already initialized and exported via require("./models")
+const analyticsRoutes = require("./routes/analyticsRoutes");
 
 // Import webhooks routes
 const webhooksRoutes = require("./routes/webhooks");
@@ -288,6 +257,9 @@ const contractUpgradeRoutes = require("./routes/contractUpgrade");
 const conversionAnalyticsRoutes = require("./routes/conversionAnalytics");
 const correlationRoutes = require("./routes/correlationRoutes");
 const futureLienRoutes = require("./routes/futureLienRoutes");
+const healthRoutes = require("./routes/healthRoutes");
+const kycStatusRoutes = require("./routes/kycStatusRoutes");
+const unlockProjectionRoutes = require("./routes/unlockProjectionRoutes");
 
 app.get("/", (req, res) => {
   res.json({ message: "Vesting Vault API is running!" });
@@ -296,6 +268,9 @@ app.get("/", (req, res) => {
 app.get("/health", (req, res) => {
   res.json({ status: "OK", timestamp: new Date().toISOString() });
 });
+
+// Mount sync health check routes
+app.use("/health", healthRoutes);
 
 // Enhanced health check with readiness probe
 app.get("/health/ready", async (req, res) => {
@@ -518,6 +493,27 @@ app.use("/api/correlation", correlationRoutes);
 // Mount vesting-to-grant-stream integration routes
 app.use("/api", futureLienRoutes);
 
+// Mount contract verification routes (prevent impersonation scams)
+app.use("/api/contract-verification", require('./routes/contractVerification'));
+
+// Mount batch claims routes (enterprise payroll optimization)
+app.use("/api/batch-claims", require('./routes/batchClaims'));
+
+// Mount partner management routes (institutional partner API access)
+app.use("/api/partners", require('./routes/partnerManagement'));
+
+// Mount KYC status routes (KYC management and admin approval)
+app.use("/api/kyc-status", kycStatusRoutes);
+
+// Mount Soroban events routes (event indexing and monitoring)
+app.use("/api/soroban-events", require('./routes/sorobanEvents'));
+
+// Mount ledger reorg management routes (reorg detection and resync)
+app.use("/api/ledger-reorg", require('./routes/ledgerReorg'));
+
+// Mount vesting history routes (optimized PostgreSQL queries)
+app.use("/api/vesting-history", require('./routes/vestingHistory'));
+
 // Historical price tracking job management endpoints
 app.post("/api/admin/jobs/historical-prices/start", async (req, res) => {
   try {
@@ -563,6 +559,34 @@ app.get("/api/admin/jobs/historical-prices/stats", async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
+// GDPR compliance job management endpoints
+app.post("/api/admin/jobs/gdpr-compliance/run", async (req, res) => {
+  try {
+    const gdprJob = new gdprComplianceJob();
+    const results = await gdprJob.runManually();
+    res.json({
+      success: true,
+      message: "GDPR compliance check completed",
+      data: results
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get("/api/admin/jobs/gdpr-compliance/stats", async (req, res) => {
+  try {
+    const gdprJob = new gdprComplianceJob();
+    const stats = await gdprJob.getStats();
+    res.json({ success: true, data: stats });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Mount unlock projection routes
+app.use('/api/analytics/projections', unlockProjectionRoutes);
 
 // Mount analytics routes
 app.use('/api', analyticsRoutes);
@@ -1744,6 +1768,32 @@ app.get("/api/token/:address/distribution", async (req, res) => {
       where: {
         token_address: address,
         total_amount: {
+          [sequelize.Op.gt]: 0
+        }
+
+        ,const :dividendRound = await dividendService.createDividendRound(
+          tokenAddress,
+          totalAmount,
+          dividendToken,
+          vestedTreatment,
+          unvestedMultiplier,
+          createdBy
+        ),
+
+res,status(201).json({
+          success: true,
+          data: dividendRound
+        }),
+      } 
+,catch (error) {
+        console.error('Error creating dividend round:', error);
+        res.status(500).json({
+          success: false,
+          error: error.message
+        });
+      }
+    },
+  
           [sequelize.Op.gt]: 0,
         },
       },
@@ -2377,6 +2427,37 @@ const startServer = async () => {
     await sequelize.sync();
     console.log("Database synchronized successfully.");
 
+    // Initialize SEP-12 KYC Module
+    try {
+      const sep12Module = new SEP12Module({ sequelize });
+      await sep12Module.initialize();
+      sep12Module.registerRoutes(app);
+      console.log('SEP-12 KYC Module initialized successfully.');
+    } catch (sep12Error) {
+      console.error('Failed to initialize SEP-12 KYC Module:', sep12Error);
+      console.log('Continuing without SEP-12 KYC functionality...');
+    }
+
+    // Initialize Vesting Update WebSocket Server AFTER database is ready
+    try {
+      const VestingUpdateWebSocket = require('./websocket/vesting-update.websocket');
+      const vestingUpdateWebSocket = new VestingUpdateWebSocket(httpServer);
+      console.log('WebSocket server initialized successfully.');
+    } catch (wsError) {
+      console.error('Failed to initialize WebSocket:', wsError);
+      console.log('Continuing with REST API only...');
+    }
+
+    // Initialize Dashboard Gateway for enhanced real-time updates
+    try {
+      const DashboardGateway = require('./websocket/dashboard-gateway.gateway');
+      const dashboardGateway = new DashboardGateway(httpServer);
+      console.log('Dashboard Gateway initialized successfully.');
+    } catch (gatewayError) {
+      console.error('Failed to initialize Dashboard Gateway:', gatewayError);
+      console.log('Continuing without enhanced dashboard features...');
+    }
+
     // Initialize Redis Cache
     try {
       await cacheService.connect();
@@ -2453,6 +2534,39 @@ const startServer = async () => {
     } catch (jobError) {
       console.error("Failed to initialize Vault Registry Indexing Job:", jobError);
     }
+    
+    // Start the HTTP server
+    httpServer.listen(PORT, () => {
+      console.log(`Server is running on port ${PORT}`);
+      console.log(`REST API available at: http://localhost:${PORT}`);
+      if (graphQLServer) {
+        console.log(`GraphQL API available at: http://localhost:${PORT}/graphql`);
+        });
+      } try 
+      catch (error) {
+        console.error('Unable to start server:', error);
+        process.exit(1);
+      }
+    };
+
+    startServer();
+    };
+
+    // Initialize Vault Balance Monitoring Job
+    try {
+      vaultBalanceMonitoringJob.start();
+      console.log("Vault Balance Monitoring Job started successfully.");
+    } catch (jobError) {
+      console.error("Failed to initialize Vault Balance Monitoring Job:", jobError);
+    }
+
+    // Initialize claim webhook listener
+    try {
+      claimWebhookListenerService.start();
+      console.log("Claim Webhook Listener started successfully.");
+    } catch (listenerError) {
+      console.error("Failed to initialize Claim Webhook Listener:", listenerError);
+    }
 
     // Initialize Stellar Path Payment Listener
     try {
@@ -2460,6 +2574,38 @@ const startServer = async () => {
       console.log("Stellar Path Payment Listener started successfully.");
     } catch (listenerError) {
       console.error("Failed to initialize Stellar Path Payment Listener:", listenerError);
+    }
+
+    // Initialize Soroban Event Poller Service
+    try {
+      const SorobanEventPollerService = require('./services/sorobanEventPollerService');
+      const SorobanEventProcessor = require('./services/sorobanEventProcessor');
+      
+      const sorobanEventPoller = new SorobanEventPollerService({
+        pollInterval: parseInt(process.env.SOROBAN_POLL_INTERVAL) || 30000,
+        batchSize: parseInt(process.env.SOROBAN_BATCH_SIZE) || 100,
+        contractAddresses: process.env.SOROBAN_CONTRACT_ADDRESSES ? 
+          process.env.SOROBAN_CONTRACT_ADDRESSES.split(',') : []
+      });
+      
+      const sorobanEventProcessor = new SorobanEventProcessor({
+        batchSize: parseInt(process.env.SOROBAN_PROCESSOR_BATCH_SIZE) || 50,
+        processingDelay: parseInt(process.env.SOROBAN_PROCESSOR_DELAY) || 1000
+      });
+      
+      // Start both services
+      await sorobanEventPoller.start();
+      await sorobanEventProcessor.startProcessing();
+      
+      console.log("Soroban Event Poller and Processor services started successfully.");
+      
+      // Store services globally for access in routes
+      global.sorobanEventPoller = sorobanEventPoller;
+      global.sorobanEventProcessor = sorobanEventProcessor;
+      
+    } catch (sorobanError) {
+      console.error("Failed to initialize Soroban Event services:", sorobanError);
+      console.log("Continuing without Soroban event indexing...");
     }
 
     // Start HTTP server
@@ -2483,6 +2629,15 @@ if (require.main === module) {
   // Start KYC expiration worker
   console.log('🔍 Starting KYC expiration monitoring worker...');
   kycExpirationWorker.start();
+
+  // Start GDPR compliance job
+  console.log('🔒 Starting GDPR compliance monitoring job...');
+  const gdprJob = new gdprComplianceJob();
+  gdprJob.start();
+
+  // Start Historical Price Tracking Job (SEP-40)
+  console.log('📊 Starting Historical Price Tracking Job...');
+  historicalPriceTrackingJob.start();
 
   startServer();
 }

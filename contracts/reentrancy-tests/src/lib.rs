@@ -225,7 +225,7 @@ impl<'a> VestingVaultClient<'a> {
     }
 
     pub fn initialize(&self, admin: &Address) {
-        self.env.invoke_contract(
+        self.env.invoke_contract::<()>(
             self.contract_id,
             &Symbol::new(self.env, "initialize"),
             (admin,),
@@ -241,7 +241,7 @@ impl<'a> VestingVaultClient<'a> {
         vesting_duration: &u64,
         revocable: &bool,
     ) -> Address {
-        self.env.invoke_contract(
+        self.env.invoke_contract::<Address>(
             self.contract_id,
             &Symbol::new(self.env, "create_vault"),
             (beneficiary, total_amount, cliff_date, vesting_start, vesting_duration, revocable),
@@ -249,7 +249,7 @@ impl<'a> VestingVaultClient<'a> {
     }
 
     pub fn claim(&self, vault_id: &Address) -> i128 {
-        self.env.invoke_contract(
+        self.env.invoke_contract::<i128>(
             self.contract_id,
             &Symbol::new(self.env, "claim"),
             (vault_id,),
@@ -257,7 +257,7 @@ impl<'a> VestingVaultClient<'a> {
     }
 
     pub fn revoke(&self, vault_id: &Address) {
-        self.env.invoke_contract(
+        self.env.invoke_contract::<()>(
             self.contract_id,
             &Symbol::new(self.env, "revoke"),
             (vault_id,),
@@ -265,7 +265,7 @@ impl<'a> VestingVaultClient<'a> {
     }
 
     pub fn get_vault_info(&self, vault_id: &Address) -> Vault {
-        self.env.invoke_contract(
+        self.env.invoke_contract::<Vault>(
             self.contract_id,
             &Symbol::new(self.env, "get_vault_info"),
             (vault_id,),
@@ -285,7 +285,7 @@ impl<'a> MaliciousContractClient<'a> {
     }
 
     pub fn initialize(&self, vault_contract: &Address, vault_id: &Address) {
-        self.env.invoke_contract(
+        self.env.invoke_contract::<()>(
             self.contract_id,
             &Symbol::new(self.env, "initialize"),
             (vault_contract, vault_id),
@@ -293,7 +293,7 @@ impl<'a> MaliciousContractClient<'a> {
     }
 
     pub fn attempt_claim_reentrancy(&self) -> bool {
-        self.env.invoke_contract(
+        self.env.invoke_contract::<bool>(
             self.contract_id,
             &Symbol::new(self.env, "attempt_claim_reentrancy"),
             (),
@@ -301,7 +301,7 @@ impl<'a> MaliciousContractClient<'a> {
     }
 
     pub fn attempt_revoke_reentrancy(&self) -> bool {
-        self.env.invoke_contract(
+        self.env.invoke_contract::<bool>(
             self.contract_id,
             &Symbol::new(self.env, "attempt_revoke_reentrancy"),
             (),
@@ -309,7 +309,7 @@ impl<'a> MaliciousContractClient<'a> {
     }
 
     pub fn attempt_create_vault_reentrancy(&self, beneficiary: &Address) -> bool {
-        self.env.invoke_contract(
+        self.env.invoke_contract::<bool>(
             self.contract_id,
             &Symbol::new(self.env, "attempt_create_vault_reentrancy"),
             (beneficiary,),
@@ -317,7 +317,7 @@ impl<'a> MaliciousContractClient<'a> {
     }
 
     pub fn get_attack_info(&self) -> AttackState {
-        self.env.invoke_contract(
+        self.env.invoke_contract::<AttackState>(
             self.contract_id,
             &Symbol::new(self.env, "get_attack_info"),
             (),
@@ -325,7 +325,7 @@ impl<'a> MaliciousContractClient<'a> {
     }
 
     pub fn reset_attack_state(&self) {
-        self.env.invoke_contract(
+        self.env.invoke_contract::<()>(
             self.contract_id,
             &Symbol::new(self.env, "reset_attack_state"),
             (),
@@ -349,7 +349,7 @@ impl<'a> ReentrancyTestsClient<'a> {
     }
 
     pub fn run_reentrancy_tests(&self) -> bool {
-        self.env.invoke_contract(
+        self.env.invoke_contract::<bool>(
             self.contract_id,
             &Symbol::new(self.env, "run_reentrancy_tests"),
             (),
@@ -357,7 +357,7 @@ impl<'a> ReentrancyTestsClient<'a> {
     }
 
     pub fn test_normal_operation(&self) -> bool {
-        self.env.invoke_contract(
+        self.env.invoke_contract::<bool>(
             self.contract_id,
             &Symbol::new(self.env, "test_normal_operation"),
             (),
