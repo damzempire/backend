@@ -27,8 +27,8 @@ const VaultRegistry = require("./vaultRegistry");
 const Rule144Compliance = require("./rule144Compliance");
 const TaxCalculation = require("./taxCalculation");
 const TaxJurisdiction = require("./taxJurisdiction");
-const KycStatus = require("./KycStatus");
-const KycNotification = require("./KycNotification");
+const KycStatus = require("./kycStatus");
+const KycNotification = require("./kycNotification");
 const ContractUpgradeProposal = require("./contractUpgradeProposal");
 const CertifiedBuild = require("./certifiedBuild");
 const ConversionEvent = require("./conversionEvent");
@@ -37,6 +37,17 @@ const GrantStream = require("./grantStream");
 const FutureLien = require("./futureLien");
 const LienRelease = require("./lienRelease");
 const LienMilestone = require("./lienMilestone");
+const DAOProposal = require("./daoProposal");
+const DAOVote = require("./daoVote");
+const ContractUpgradeSignature = require("./contractUpgradeSignature");
+const ContractUpgradeAuditLog = require("./contractUpgradeAuditLog");
+const VaultBalanceMonitorState = require("./vaultBalanceMonitorState");
+const TicketType = require("./TicketType");
+const SorobanEvent = require("./sorobanEvent");
+const AdminAuditLog = require("./adminAuditLog");
+const GrantPriceSnapshot = require("./grantPriceSnapshot");
+const RoiCalculation = require("./roiCalculation");
+const ClaimWebhookDelivery = require("./claimWebhookDelivery");
 
 const { Token, initTokenModel } = require("./token");
 const {
@@ -45,8 +56,10 @@ const {
 } = require("./organizationWebhook");
 
 initTokenModel(sequelize);
-
 initOrganizationWebhookModel(sequelize);
+
+// Initialize TicketType model (it seems to be a function in this codebase)
+const TicketTypeModel = typeof TicketType === 'function' ? TicketType(sequelize) : TicketType;
 
 const models = {
   ClaimsHistory,
@@ -71,18 +84,20 @@ const models = {
   DividendRound,
   DividendDistribution,
   DividendSnapshot,
+  Token,
+  OrganizationWebhook,
   VestingMilestone,
   HistoricalTokenPrice,
   HistoricalTVL,
   CostBasisReport,
   AuditorToken,
   AnnualVestingStatement,
-  Token,
-  OrganizationWebhook,
+  ClaimWebhookDelivery,
   VaultRegistry,
   ContractUpgradeProposal,
   ContractUpgradeSignature,
   ContractUpgradeAuditLog,
+  VaultBalanceMonitorState,
   CertifiedBuild,
   ConversionEvent,
   MilestoneCelebrationWebhook,
@@ -90,13 +105,19 @@ const models = {
   FutureLien,
   LienRelease,
   LienMilestone,
+  DAOProposal,
+  DAOVote,
+  TicketType: TicketTypeModel,
+  SorobanEvent,
+  AdminAuditLog,
+  GrantPriceSnapshot,
+  RoiCalculation,
   sequelize,
 };
 
 // Setup associations
-
 Object.keys(models).forEach((modelName) => {
-  if (models[modelName].associate) {
+  if (models[modelName] && models[modelName].associate) {
     models[modelName].associate(models);
   }
 });

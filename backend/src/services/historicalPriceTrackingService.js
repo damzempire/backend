@@ -515,6 +515,78 @@ class HistoricalPriceTrackingService {
   }
 
   /**
+   * Sync daily closing prices for all tracked tokens
+   * @param {Date} date - Date to sync prices for (defaults to yesterday)
+   * @returns {Promise<Object>} Summary of the sync process
+   */
+  async syncDailyPricesForAllTokens(date = null) {
+    const syncDate = date ? new Date(date) : new Date();
+    if (!date) syncDate.setDate(syncDate.getDate() - 1); // Default to yesterday
+    
+    const dateStr = syncDate.toISOString().split('T')[0];
+    console.log(`🕒 Starting daily price sync for all tokens on ${dateStr}`);
+
+    try {
+      // Get all unique tokens from the database
+      const tokens = await Token.findAll({
+        attributes: ['address', 'symbol']
+      });
+
+      console.log(`🔍 Found ${tokens.length} tokens to sync`);
+
+      const results = {
+        total: tokens.length,
+        success: 0,
+        failed: 0,
+        skipped: 0,
+        errors: []
+      };
+
+      // Process tokens in batches
+      const batchSize = 5;
+      for (let i = 0; i < tokens.length; i += batchSize) {
+        const batch = tokens.slice(i, i + batchSize);
+        
+        await Promise.all(batch.map(async (token) => {
+          try {
+            // Check if price already exists for this date
+            const existing = await HistoricalTokenPrice.findOne({
+              where: {
+                token_address: token.address,
+                price_date: dateStr
+              }
+            });
+
+            if (existing) {
+              results.skipped++;
+              return;
+            }
+
+            // Fetch and store price
+            await this.getHistoricalPrice(token.address, syncDate);
+            results.success++;
+            console.log(`✅ Synced price for ${token.symbol} (${token.address})`);
+          } catch (error) {
+            results.failed++;
+            results.errors.push({ token: token.symbol, address: token.address, error: error.message });
+            console.error(`❌ Failed to sync price for ${token.symbol}:`, error.message);
+          }
+        }));
+
+        // Rate limiting delay
+        if (i + batchSize < tokens.length) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      }
+
+      return results;
+    } catch (error) {
+      console.error('Error in syncDailyPricesForAllTokens:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Clear price cache
    */
   clearCache() {

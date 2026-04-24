@@ -4,71 +4,73 @@ const { sequelize } = require('../database/connection');
 const { Server } = require('stellar-sdk');
 
 // Mock the Stellar SDK
-jest.mock('stellar-sdk', () => ({
-  Server: jest.fn().mockImplementation(() => ({
-    ledgers: jest.fn().mockReturnValue({
-      order: jest.fn().mockReturnValue({
-        limit: jest.fn().mockReturnValue({
-          call: jest.fn().mockResolvedValue({
-            records: [{ sequence: 12345 }]
-          })
-        })
-      })
-    }),
-    transactions: jest.fn().mockReturnValue({
-      cursor: jest.fn().mockReturnValue({
+jest.mock('stellar-sdk', () => {
+  return {
+    Server: jest.fn().mockImplementation(() => ({
+      ledgers: jest.fn().mockReturnValue({
         order: jest.fn().mockReturnValue({
           limit: jest.fn().mockReturnValue({
-            stream: jest.fn().mockReturnValue(
-              (async function*() {
-                yield {
-                  hash: 'test_tx_hash',
-                  successful: true,
-                  ledger: 12346,
-                  created_at: new Date(),
-                  fee_charged: '100',
-                  paging_token: '12346'
-                };
-              })()
-            )
+            call: jest.fn().mockResolvedValue({
+              records: [{ sequence: 12345 }]
+            })
           })
         })
       }),
-      transaction: jest.fn().mockReturnValue({
-        call: jest.fn().mockResolvedValue({
-          hash: 'test_tx_hash',
-          successful: true,
-          ledger: 12346,
-          created_at: new Date(),
-          fee_charged: '100',
-          operations: [
-            {
-              type: 'path_payment_strict_send',
-              source_account: 'GD5XQZOWZCQ5JQPYE4MIVUYR2QYQ22LUCPDBL4TCHJ72Y2N4QZTPQFM',
-              source_asset: {
-                asset_type: 'credit_alphanum12',
-                asset_code: 'TOKEN',
-                asset_issuer: 'GBXKQ4K2YF3VXZ5J5N7L8Q9R0T1U2V3W4X5Y6Z7A8B9C0D1E2F3'
-              },
-              source_amount: '1000.000000',
-              destination_asset: {
-                asset_type: 'credit_alphanum4',
-                asset_code: 'USDC',
-                asset_issuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN'
-              },
-              destination_amount: '500.000000',
-              path: []
-            }
-          ]
+      transactions: jest.fn().mockReturnValue({
+        cursor: jest.fn().mockReturnValue({
+          order: jest.fn().mockReturnValue({
+            limit: jest.fn().mockReturnValue({
+              stream: jest.fn().mockImplementation((options) => {
+                if (options && options.onmessage) {
+                  options.onmessage({
+                    hash: 'test_tx_hash',
+                    successful: true,
+                    ledger: 12346,
+                    created_at: new Date().toISOString(),
+                    fee_charged: '100',
+                    paging_token: '12346'
+                  });
+                }
+              })
+            })
+          })
+        }),
+        transaction: jest.fn().mockReturnValue({
+          call: jest.fn().mockResolvedValue({
+            hash: 'test_tx_hash',
+            successful: true,
+            ledger: 12346,
+            created_at: new Date(),
+            fee_charged: '100',
+            operations: [
+              {
+                type: 'path_payment_strict_send',
+                source_account: 'GD5XQZOWZCQ5JQPYE4MIVUYR2QYQ22LUCPDBL4TCHJ72Y2N4QZTPQFM',
+                source_asset: {
+                  asset_type: 'credit_alphanum12',
+                  asset_code: 'TOKEN',
+                  asset_issuer: 'GBXKQ4K2YF3VXZ5J5N7L8Q9R0T1U2V3W4X5Y6Z7A8B9C0D1E2F3'
+                },
+                source_amount: '1000.000000',
+                destination_asset: {
+                  asset_type: 'credit_alphanum4',
+                  asset_code: 'USDC',
+                  asset_issuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN'
+                },
+                destination_amount: '500.000000',
+                path: []
+              }
+            ]
+          })
         })
       })
-    })
-  }),
-  Networks: {
-    PUBLIC: 'Public Network',
-    TESTNET: 'Test Network'
-  }
-}));
+    })),
+    Networks: {
+      PUBLIC: 'Public Network',
+      TESTNET: 'Test Network'
+    }
+  };
+});
 
 describe('StellarPathPaymentListener', () => {
   let testUserAddress;

@@ -69,7 +69,7 @@ impl VestingVault {
         // CHECKS
         Self::check_reentrancy(&env);
         
-        let admin = env.storage().instance().get(&DataKey::Admin)
+        let admin: Address = env.storage().instance().get(&DataKey::Admin)
             .unwrap_or_else(|| panic!("contract not initialized"));
         admin.require_auth();
 
@@ -131,7 +131,7 @@ impl VestingVault {
         // CHECKS
         Self::check_reentrancy(&env);
         
-        let admin = env.storage().instance().get(&DataKey::Admin)
+        let admin: Address = env.storage().instance().get(&DataKey::Admin)
             .unwrap_or_else(|| panic!("contract not initialized"));
         admin.require_auth();
 
@@ -232,7 +232,7 @@ impl VestingVault {
         bounty_percentage: u32,
     ) {
         // CHECKS
-        let admin = env.storage().instance().get(&DataKey::Admin)
+        let admin: Address = env.storage().instance().get(&DataKey::Admin)
             .unwrap_or_else(|| panic!("contract not initialized"));
         admin.require_auth();
 

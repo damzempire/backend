@@ -1,7 +1,7 @@
 const request = require('supertest');
-const { app } = require('../src/index');
-const { sequelize } = require('../src/database/connection');
-const { VaultRegistry, IndexerState } = require('../src/models');
+const { app } = require('../index');
+const { sequelize } = require('../database/connection');
+const { VaultRegistry, IndexerState } = require('../models');
 
 describe('Vault Registry API', () => {
   let server;

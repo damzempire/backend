@@ -16,6 +16,10 @@ class BalanceTracker {
    */
   constructor(rpcUrl = null) {
     this.rpcUrl = rpcUrl || process.env.STELLAR_RPC_URL;
+    const configuredTimeout = Number(process.env.BALANCE_TRACKER_RPC_TIMEOUT_MS || 10000);
+    this.rpcTimeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout > 0
+      ? configuredTimeout
+      : 10000;
     if (!this.rpcUrl) {
       throw new Error('STELLAR_RPC_URL environment variable is required');
     }
@@ -38,6 +42,8 @@ class BalanceTracker {
           params: {
             transaction: this._buildBalanceQueryTransaction(tokenAddress, vaultAddress),
           },
+        }, {
+          timeout: this.rpcTimeoutMs,
         });
 
       const response = await executeRpcWithRetry(rpcCall, `getActualBalance for ${vaultAddress}`);

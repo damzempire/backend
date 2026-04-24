@@ -1,4 +1,5 @@
 const { Vault, TVL, HistoricalTVL } = require('../models');
+const cacheService = require('./cacheService');
 
 class TVLService {
   /**
@@ -6,6 +7,13 @@ class TVLService {
    * @returns {Promise<{totalValueLocked: number, activeVaultsCount: number}>}
    */
   async calculateTVL() {
+    const cacheKey = 'tvl_calculation';
+    return await cacheService.wrapWithCache(cacheKey, async () => {
+      return this._calculateTVLInternal();
+    }, 900); // 15 minutes TTL
+  }
+
+  async _calculateTVLInternal() {
     try {
       const vaults = await Vault.findAll({
         where: { is_active: true }
@@ -160,24 +168,27 @@ class TVLService {
    * @returns {Promise<Object>} TVL stats
    */
   async getTVLStats() {
-    try {
-      let tvlRecord = await TVL.findOne();
+    const cacheKey = 'tvl_stats';
+    return await cacheService.wrapWithCache(cacheKey, async () => {
+      try {
+        let tvlRecord = await TVL.findOne();
 
-      // If no record exists, calculate and create one
-      if (!tvlRecord) {
-        tvlRecord = await this.updateTVL();
+        // If no record exists, calculate and create one
+        if (!tvlRecord) {
+          tvlRecord = await this.updateTVL();
+        }
+
+        return {
+          total_value_locked: parseFloat(tvlRecord.total_value_locked),
+          active_vaults_count: tvlRecord.active_vaults_count,
+          last_updated_at: tvlRecord.last_updated_at,
+          created_at: tvlRecord.created_at
+        };
+      } catch (error) {
+        console.error('Error getting TVL stats:', error);
+        throw error;
       }
-
-      return {
-        total_value_locked: parseFloat(tvlRecord.total_value_locked),
-        active_vaults_count: tvlRecord.active_vaults_count,
-        last_updated_at: tvlRecord.last_updated_at,
-        created_at: tvlRecord.created_at
-      };
-    } catch (error) {
-      console.error('Error getting TVL stats:', error);
-      throw error;
-    }
+    }, 900); // 15 minutes TTL
   }
 
   /**

@@ -1,4 +1,10 @@
 [workspace]
+members = [
+    "malicious-contract",
+    "merkle_vault",
+    "reentrancy-tests",
+    "vesting-vault"
+]
 resolver = "2"
 
 [workspace.dependencies]

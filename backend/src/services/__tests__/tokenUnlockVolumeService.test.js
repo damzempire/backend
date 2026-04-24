@@ -3,11 +3,32 @@ const { Vault, SubSchedule, Beneficiary } = require('../../models');
 
 // Mock dependencies
 jest.mock('../../models');
-jest.mock('sequelize', () => ({
-  Op: {
-    in: jest.fn()
-  }
-}));
+jest.mock('sequelize', () => {
+  const mSequelize = jest.fn();
+  mSequelize.prototype.authenticate = jest.fn();
+  mSequelize.prototype.sync = jest.fn();
+  mSequelize.prototype.close = jest.fn();
+  mSequelize.prototype.query = jest.fn();
+  
+  return {
+    Sequelize: mSequelize,
+    Op: {
+      in: jest.fn(),
+      gt: jest.fn(),
+      lt: jest.fn(),
+      and: jest.fn()
+    },
+    DataTypes: {
+      UUID: 'UUID',
+      UUIDV4: 'UUIDV4',
+      STRING: 'STRING',
+      DECIMAL: 'DECIMAL',
+      DATE: 'DATE',
+      BIGINT: 'BIGINT',
+      NOW: 'NOW'
+    }
+  };
+});
 
 describe('TokenUnlockVolumeService', () => {
   let service;
