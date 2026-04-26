@@ -4,6 +4,8 @@ const dotenv = require('dotenv');
 const http = require('http');
 const { rateLimit } = require('express-rate-limit');
 const { walletRateLimitMiddleware } = require('./middleware/wallet-ratelimit.middleware');
+const { smartCompression } = require('./middleware/compression.middleware');
+const { paginateWithCursor, validateCursorParams } = require('./services/cursorPaginationService');
 
 const Sentry = require('@sentry/node');
 const { nodeProfilingIntegration } = require('@sentry/profiling-node');
@@ -43,6 +45,9 @@ app.use(cors());
 app.use(express.json());
 app.use(require('cookie-parser')());
 
+// Apply smart compression to all API routes (compresses JSON >1KB)
+app.use('/api', smartCompression);
+
 // Apply wallet-based rate limiting to all API routes
 app.use('/api', walletRateLimitMiddleware);
 
@@ -71,7 +76,8 @@ const claimRateLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-const { sequelize } = require('./database/connection');
+const { getSequelize } = require('./database/connection');
+const secretsService = require('./services/secretsService');
 const models = require('./models');
 const { OrganizationWebhook } = models;
 // Register webhook URL for organization
@@ -663,9 +669,25 @@ app.post('/api/admin/transfer', async (req, res) => {
 
 app.get('/api/admin/audit-logs', async (req, res) => {
   try {
-    const { limit } = req.query;
-    const result = await adminService.getAuditLogs(limit ? parseInt(limit) : 100);
-    res.json({ success: true, data: result });
+    const { cursor, limit = 100 } = req.query;
+    
+    // Validate cursor parameters
+    const paginationOptions = validateCursorParams(req, 'created_at');
+    
+    const result = await paginateWithCursor(models.AuditLog, {
+      cursor: paginationOptions.cursor,
+      orderField: 'created_at',
+      orderDirection: 'DESC',
+      limit: paginationOptions.limit
+    });
+    
+    res.json({ 
+      success: true, 
+      data: {
+        audit_logs: result.items,
+        pagination: result.pagination
+      }
+    });
   } catch (error) {
     console.error('Error fetching audit logs:', error);
     res.status(500).json({ success: false, error: error.message });
@@ -1069,20 +1091,6 @@ app.get('/api/admin/multi-sig/stats', authService.authenticate(true), async (req
   }
 });
 
-// GET /api/vaults/:id/export', async (req, res) => {
-try {
-  const { id } = req.params;
-  await vaultExportService.streamVaultAsCSV(id, res);
-} catch (error) {
-  console.error('Error exporting vault:', error);
-
-  // If headers haven't been sent yet, send JSON error response
-  if (!res.headersSent) {
-    res.status(500).json({ success: false, error: error.message });
-  } else {
-    res.destroy(error);
-  }
-}
 // Balance query endpoint
 app.get('/api/vaults/:id/balance', async (req, res) => {
   try {
@@ -1415,17 +1423,29 @@ app.post('/api/admin/dividend/:roundId/calculate', authService.authenticate(true
       }
     });
 
-    // GET /api/dividend/history/:userAddress - Get user dividend history
+    // GET /api/dividend/history/:userAddress - Get user dividend history (cursor-based pagination)
     app.get('/api/dividend/history/:userAddress', async (req, res) => {
       try {
         const { userAddress } = req.params;
-        const { limit = 50 } = req.query;
+        const { cursor, limit = 50 } = req.query;
 
-        const history = await dividendService.getUserDividendHistory(userAddress, parseInt(limit));
+        // Validate cursor parameters
+        const paginationOptions = validateCursorParams(req, 'created_at');
+
+        const result = await paginateWithCursor(models.DividendDistribution, {
+          cursor: paginationOptions.cursor,
+          orderField: 'created_at',
+          orderDirection: 'DESC',
+          limit: paginationOptions.limit,
+          where: { user_address: userAddress }
+        });
 
         res.json({
           success: true,
-          data: history
+          data: {
+            dividend_history: result.items,
+            pagination: result.pagination
+          }
         });
       } catch (error) {
         console.error('Error getting dividend history:', error);
@@ -1462,6 +1482,17 @@ if (process.env.SENTRY_DSN && Sentry.Handlers) {
   
  const startServer = async () => {
   try {
+    // Initialize secrets service first
+    try {
+      await secretsService.initialize();
+      console.log('Secrets service initialized successfully.');
+    } catch (secretsError) {
+      console.error('Failed to initialize secrets service:', secretsError);
+      console.log('Continuing with environment variables...');
+    }
+
+    // Get database connection with dynamic credentials
+    const sequelize = await getSequelize();
     await sequelize.authenticate();
     console.log('Database connection established successfully.');
 
