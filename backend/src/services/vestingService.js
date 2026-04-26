@@ -3,6 +3,7 @@
 const { Vault, Beneficiary, SubSchedule } = require('../models');
 const { sequelize } = require('../database/connection');
 const auditLogger = require('./auditLogger');
+const cacheInvalidationService = require('./cacheInvalidationService');
 
 class VestingService {
   /**
@@ -49,12 +50,23 @@ class VestingService {
 
         // Create beneficiaries if provided
         if (Array.isArray(vaultData.beneficiaries) && vaultData.beneficiaries.length > 0) {
-          await Promise.all(
+          const beneficiaries = await Promise.all(
             vaultData.beneficiaries.map((b) =>
               Beneficiary.create({
                 vault_id: vault.id,
                 address: b.address,
                 total_allocated: b.allocation || 0,
+              })
+            )
+          );
+
+          // Invalidate cache for each beneficiary
+          await Promise.all(
+            beneficiaries.map(beneficiary =>
+              cacheInvalidationService.invalidateCacheAfterGrantIssuance({
+                beneficiaryAddress: beneficiary.address,
+                vaultId: vault.id,
+                orgId: vault.org_id
               })
             )
           );
@@ -67,6 +79,12 @@ class VestingService {
           tokenType: vault.token_type,
           name: vault.name,
           tag: vault.tag,
+        });
+
+        // Invalidate cache for vault creation
+        await cacheInvalidationService.invalidateCacheForEvent('vault_created', {
+          vaultId: vault.id,
+          orgId: vault.org_id
         });
 
         return vault;
@@ -416,6 +434,9 @@ class VestingService {
     
     const totalVested = (elapsedTimeInSeconds * totalAllocation) / totalDurationInSeconds;
     return totalVested;
+  }
+
+  /**
    * Calculate a clean break payout for a terminated beneficiary.
    *
    * Returns two-part instructions:
