@@ -3,6 +3,7 @@ const router = express.Router();
 const historicalPriceTrackingService = require('../services/historicalPriceTrackingService');
 const { VestingMilestone, CostBasisReport, HistoricalTokenPrice } = require('../models');
 const { Op } = require('sequelize');
+const { paginateWithCursorAndCount, validateCursorParams } = require('../services/cursorPaginationService');
 
 /**
  * Generate vesting milestones for a vault
@@ -90,7 +91,7 @@ router.get('/cost-basis/:userAddress/:tokenAddress/:year', async (req, res) => {
 });
 
 /**
- * Get vesting milestones for a beneficiary
+ * Get vesting milestones for a beneficiary (cursor-based pagination)
  * GET /api/historical-prices/milestones/:userAddress
  */
 router.get('/milestones/:userAddress', async (req, res) => {
@@ -99,10 +100,13 @@ router.get('/milestones/:userAddress', async (req, res) => {
     const { 
       tokenAddress, 
       startDate, 
-      endDate, 
-      limit = 100, 
-      offset = 0 
+      endDate,
+      cursor,
+      limit = 100 
     } = req.query;
+
+    // Validate cursor parameters
+    const paginationOptions = validateCursorParams(req, 'milestone_date');
 
     const whereClause = {};
     
@@ -116,7 +120,11 @@ router.get('/milestones/:userAddress', async (req, res) => {
       if (endDate) whereClause.milestone_date[Op.lte] = new Date(endDate);
     }
 
-    const milestones = await VestingMilestone.findAndCountAll({
+    const milestones = await paginateWithCursorAndCount(VestingMilestone, {
+      cursor: paginationOptions.cursor,
+      orderField: 'milestone_date',
+      orderDirection: 'DESC',
+      limit: paginationOptions.limit,
       where: whereClause,
       include: [
         {
@@ -130,22 +138,14 @@ router.get('/milestones/:userAddress', async (req, res) => {
           as: 'vault',
           attributes: ['address', 'name', 'token_address']
         }
-      ],
-      order: [['milestone_date', 'DESC']],
-      limit: parseInt(limit),
-      offset: parseInt(offset)
+      ]
     });
 
     res.json({
       success: true,
       data: {
-        milestones: milestones.rows,
-        pagination: {
-          total: milestones.count,
-          limit: parseInt(limit),
-          offset: parseInt(offset),
-          has_more: milestones.count > parseInt(offset) + parseInt(limit)
-        }
+        milestones: milestones.items,
+        pagination: milestones.pagination
       }
     });
   } catch (error) {

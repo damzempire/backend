@@ -1,4 +1,5 @@
 const { createClient } = require("./redis-client");
+const secretsService = require("../services/secretsService");
 
 // Redis client for rate limiting
 let redisClient = null;
@@ -6,21 +7,77 @@ let redisClient = null;
 // Initialize Redis client
 const initializeRedisClient = async () => {
   if (!redisClient) {
+    let redisHost, redisPort, redisPassword, useTls;
+    
+    // Get Redis credentials dynamically from secrets service
+    try {
+      const redisConfig = await secretsService.getRedisCredentials();
+      redisHost = redisConfig.host;
+      redisPort = redisConfig.port;
+      redisPassword = redisConfig.password;
+      useTls = redisConfig.tls;
+      
+      console.log('Redis connection initialized with dynamic credentials');
+    } catch (error) {
+      console.error('Failed to initialize Redis with dynamic credentials, falling back to environment variables:', error);
+      
+      // Fallback to environment variables if secrets service fails
+      redisHost = process.env.REDIS_HOST || "localhost";
+      redisPort = process.env.REDIS_PORT || 6379;
+      redisPassword = process.env.REDIS_PASSWORD;
+      useTls = process.env.REDIS_TLS === 'true' || process.env.NODE_ENV === 'production';
+    }
+    
+    // Enforce TLS in production environments
+    if (process.env.NODE_ENV === 'production' && !useTls) {
+      throw new Error('Redis TLS is required in production. Set REDIS_TLS=true or use rediss:// URL.');
+    }
+    
+    // Enforce password authentication in production
+    if (process.env.NODE_ENV === 'production' && !redisPassword) {
+      throw new Error('Redis password authentication is required in production. Set REDIS_PASSWORD.');
+    }
+    
+    const redisUrl = process.env.REDIS_URL || 
+      (useTls ? `rediss://${redisHost}:${redisPort}` : `redis://${redisHost}:${redisPort}`);
+    
     redisClient = createClient({
-      url:
-        process.env.REDIS_URL ||
-        `redis://${process.env.REDIS_HOST || "localhost"}:${process.env.REDIS_PORT || 6379}`,
-      password: process.env.REDIS_PASSWORD,
+      url: redisUrl,
+      password: redisPassword,
       retry_delay_on_failover: 100,
       enable_offline_queue: false,
+      // TLS configuration for secure connections
+      socket: {
+        tls: useTls,
+        rejectUnauthorized: true, // Enforce certificate verification
+        minVersion: 'TLSv1.2', // Require minimum TLS version 1.2
+        maxVersion: 'TLSv1.3'  // Allow up to TLS 1.3
+      },
+      // Connection security settings
+      connectTimeout: 10000,
+      lazyConnect: true,
+      // Authentication timeout
+      commandTimeout: 5000,
     });
 
     redisClient.on("error", (err) => {
       console.error("Redis Client Error:", err);
+      // Log TLS-specific errors for debugging
+      if (err.message.includes('TLS') || err.message.includes('certificate')) {
+        console.error("Redis TLS Error - Check certificate configuration and REDIS_TLS setting");
+      }
     });
 
     redisClient.on("connect", () => {
-      console.log("Redis Client Connected");
+      console.log(`Redis Client Connected (TLS: ${useTls ? 'enabled' : 'disabled'})`);
+    });
+
+    redisClient.on("ready", () => {
+      console.log("Redis Client Ready - Authentication successful");
+    });
+
+    redisClient.on("end", () => {
+      console.log("Redis Client Connection Ended");
     });
 
     await redisClient.connect();

@@ -8,6 +8,8 @@ const dotenv = require('dotenv');
 const http = require('http');
 const { rateLimit } = require('express-rate-limit');
 const { walletRateLimitMiddleware } = require('./middleware/wallet-ratelimit.middleware');
+const { smartCompression } = require('./middleware/compression.middleware');
+const { paginateWithCursor, validateCursorParams } = require('./services/cursorPaginationService');
 
 const Sentry = require('@sentry/node');
 const { nodeProfilingIntegration } = require('@sentry/profiling-node');
@@ -128,6 +130,9 @@ app.use(globalRateLimiter);
 app.use("/api/auth", authRateLimiter);
 
 
+// Apply smart compression to all API routes (compresses JSON >1KB)
+app.use('/api', smartCompression);
+
 // Apply wallet-based rate limiting to all API routes
 app.use("/api", walletRateLimitMiddleware);
 
@@ -165,8 +170,9 @@ const claimRateLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-const { sequelize } = require("./database/connection");
-const models = require("./models");
+const { getSequelize } = require('./database/connection');
+const secretsService = require('./services/secretsService');
+const models = require('./models');
 const { OrganizationWebhook } = models;
 // Register webhook URL for organization
 // For now, let's create a simple isAdminOfOrg function inline
@@ -1070,49 +1076,23 @@ app.post("/api/admin/transfer", async (req, res) => {
 // POST /api/admin/vault/privacy - Toggle privacy mode for a vault
 app.post("/api/admin/vault/privacy", async (req, res) => {
   try {
-    const { adminAddress, vaultId, privacyModeEnabled, privacyMetadata } = req.body;
-
-    if (!adminAddress || !vaultId || typeof privacyModeEnabled !== 'boolean') {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required fields: adminAddress, vaultId, privacyModeEnabled'
-      });
-    }
-
-    const { Vault } = require("./models");
-
-    // Find the vault
-    const vault = await Vault.findByPk(vaultId);
-    if (!vault) {
-      return res.status(404).json({
-        success: false,
-        error: 'Vault not found'
-      });
-    }
-
-    // Check if user is admin or vault owner
-    const isAdmin = adminAddress === process.env.ADMIN_ADDRESS;
-    const isOwner = vault.owner_address === adminAddress;
-
-    if (!isAdmin && !isOwner) {
-      return res.status(403).json({
-        success: false,
-        error: 'Only admin or vault owner can toggle privacy mode'
-      });
-    }
-
-    // Update privacy mode settings
-    await vault.update({
-      privacy_mode_enabled: privacyModeEnabled,
-      privacy_metadata: privacyMetadata || null
+    const { cursor, limit = 100 } = req.query;
+    
+    // Validate cursor parameters
+    const paginationOptions = validateCursorParams(req, 'created_at');
+    
+    const result = await paginateWithCursor(models.AuditLog, {
+      cursor: paginationOptions.cursor,
+      orderField: 'created_at',
+      orderDirection: 'DESC',
+      limit: paginationOptions.limit
     });
-
-    res.json({
-      success: true,
+    
+    res.json({ 
+      success: true, 
       data: {
-        vault_id: vault.id,
-        privacy_mode_enabled: vault.privacy_mode_enabled,
-        privacy_metadata: vault.privacy_metadata
+        audit_logs: result.items,
+        pagination: result.pagination
       }
     });
   } catch (error) {
@@ -2383,30 +2363,38 @@ app.get("/api/user/:address/consolidated", async (req, res) => {
       asOfDate: parsedAsOfDate
     });
 
-    res.json({
-      success: true,
-      data: consolidatedView
-    });
-  } catch (error) {
-    console.error("Error getting consolidated view:", error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
+    // GET /api/dividend/history/:userAddress - Get user dividend history (cursor-based pagination)
+    app.get('/api/dividend/history/:userAddress', async (req, res) => {
+      try {
+        const { userAddress } = req.params;
+        const { cursor, limit = 50 } = req.query;
 
-// POST /api/admin/consolidate-accounts - Merge beneficiary addresses
-app.post("/api/admin/consolidate-accounts", async (req, res) => {
-  try {
-    const { primaryAddress, addressesToMerge, adminAddress } = req.body;
+        // Validate cursor parameters
+        const paginationOptions = validateCursorParams(req, 'created_at');
 
-    if (!primaryAddress || !addressesToMerge || !adminAddress) {
-      return res.status(400).json({
-        success: false,
-        error: "primaryAddress, addressesToMerge, and adminAddress are required"
-      });
-    }
+        const result = await paginateWithCursor(models.DividendDistribution, {
+          cursor: paginationOptions.cursor,
+          orderField: 'created_at',
+          orderDirection: 'DESC',
+          limit: paginationOptions.limit,
+          where: { user_address: userAddress }
+        });
+
+        res.json({
+          success: true,
+          data: {
+            dividend_history: result.items,
+            pagination: result.pagination
+          }
+        });
+      } catch (error) {
+        console.error('Error getting dividend history:', error);
+        res.status(500).json({
+          success: false,
+          error: error.message
+        });
+      }
+    });
 
     if (!Array.isArray(addressesToMerge) || addressesToMerge.length === 0) {
       return res.status(400).json({
@@ -2443,9 +2431,17 @@ if (process.env.SENTRY_DSN && Sentry.Handlers) {
 
 const startServer = async () => {
   try {
-    // Initialize NestJS bridge first
-    await initNest();
+    // Initialize secrets service first
+    try {
+      await secretsService.initialize();
+      console.log('Secrets service initialized successfully.');
+    } catch (secretsError) {
+      console.error('Failed to initialize secrets service:', secretsError);
+      console.log('Continuing with environment variables...');
+    }
 
+    // Get database connection with dynamic credentials
+    const sequelize = await getSequelize();
     await sequelize.authenticate();
     console.log("Database connection established successfully.");
 
