@@ -1,60 +1,45 @@
-# Verinode Vesting Vault System
+# Vesting Vault Backend & Contracts
 
-A blockchain-based vesting vault system for managing token distributions and vesting schedules with cliff support for top-ups.
+This repository contains the Vesting Vault ecosystem, including the Node.js backend API and the Soroban Rust smart contracts.
 
-## API Documentation
+## Project Structure
 
-The API is fully documented with Swagger UI. After starting the server, access the documentation at:
+- `/backend`: Node.js Express API for managing vesting schedules, claims, and providing off-chain analytics.
+- `/contracts`: Soroban (Rust) smart contracts for on-chain vesting enforcement.
+- `/docs`: Detailed implementation summaries, architecture guides, and API documentation.
+- `/kubernetes`: K8s deployment manifests for scalable infrastructure.
+- `/scripts`: Utility scripts for deployment, backups, and maintenance.
 
-```
-http://localhost:3000/api-docs
-```
+## Getting Started
 
-The documentation includes:
-- Interactive API explorer for all endpoints
-- Detailed parameter descriptions
-- Example requests and responses
-- Authentication information
-- Model definitions
-
-## Quick Start
-
-Get the entire development environment running in minutes:
-
+### Smart Contracts (Rust)
+Navigate to the `contracts` directory:
 ```bash
-# Clone and start
-git clone <repository-url>
-cd Vesting-Vault
-docker-compose up -d
-
-# Verify it's working
-curl http://localhost:3000/health
+cd contracts
+cargo test
 ```
 
-## Services
+### Backend (Node.js)
+Navigate to the `backend` directory:
+```bash
+cd backend
+npm install
+npm start
+```
+See `docs/RUN_LOCALLY.md` for detailed setup instructions.
 
-- **Backend API**: http://localhost:3000
-- **PostgreSQL Database**: localhost:5432
-- **Redis Cache**: localhost:6379
+### Windows Setup Note
+If you are developing on Windows, ensure that **Node.js** and **Cargo** bin directories are in your System PATH:
+- **Node.js:** `C:\Program Files\nodejs\`
+- **Cargo:** `%USERPROFILE%\.cargo\bin`
 
-## Development
+This allows you to run `npm` and `stellar` from any terminal. If compilation fails, ensure the **"Desktop development with C++"** workload is installed in Visual Studio.
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed development setup and guidelines.
-
-## Architecture
-
-- **Backend**: Node.js with Express and Sequelize ORM
-- **Database**: PostgreSQL for persistent storage
-- **Cache**: Redis for session management and caching
-- **Containerization**: Docker and Docker Compose for development environment
-
-## Features
-
-- **Vesting Schedules**: Flexible vesting with cliff periods and multiple top-ups
-- **Admin Management**: Secure admin key management and audit logging
-- **Price Tracking**: Historical price tracking for tax reporting
-- **Delegate Claiming**: Allow beneficiaries to set delegates to claim on their behalf ([docs](./DELEGATE_CLAIMING.md))
+## Documentation Highlights
+- [Architecture Overview](docs/ARCHITECTURE.md)
+- [API Reference](backend/API_DOCUMENTATION.md)
+- [Historical Price Tracking](docs/summaries/HISTORICAL_PRICE_TRACKING.md)
+- [Multi-Sig Revocation](docs/summaries/MULTI_SIG_REVOCATION_SYSTEM.md)
 
 ## License
-
 MIT

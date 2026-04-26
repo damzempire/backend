@@ -62,6 +62,15 @@ describe('IndexingService - Deposit Handling', () => {
       verifyDeposit: jest.fn(),
     };
     BalanceTracker.mockImplementation(() => mockBalanceTracker);
+
+    // Suppress console output for cleaner test runs
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   describe('processTopUpEvent - Static Token', () => {

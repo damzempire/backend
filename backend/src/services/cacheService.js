@@ -196,7 +196,7 @@ class CacheService {
       }
 
       const keys = await this.client.keys(pattern);
-      if (keys.length > 0) {
+      if (keys && keys.length > 0) {
         await this.client.del(keys);
       }
       return true;
@@ -204,6 +204,26 @@ class CacheService {
       console.error(`Error deleting cache pattern ${pattern}:`, error);
       return false;
     }
+  }
+
+  /**
+   * Wrap an async function with caching
+   * @param {string} key - Cache key
+   * @param {Function} fn - Async function to wrap
+   * @param {number} ttl - TTL in seconds
+   * @returns {Promise<any>} Result from cache or function
+   */
+  async wrapWithCache(key, fn, ttl = this.defaultTTL) {
+    const cachedValue = await this.get(key);
+    if (cachedValue !== null) {
+      return cachedValue;
+    }
+
+    const result = await fn();
+    if (result !== null && result !== undefined) {
+      await this.set(key, result, ttl);
+    }
+    return result;
   }
 
   /**

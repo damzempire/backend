@@ -1,6 +1,7 @@
 const { sequelize } = require('../database/connection');
 const axios = require('axios');
 const crypto = require('crypto');
+const { executeRpcWithRetry } = require('../../../rpc-retry');
 
 /**
  * Validates the network configuration on startup to ensure that
@@ -22,23 +23,28 @@ async function validateNetworkOnStartup() {
   let rpcPassphrase;
   try {
     // Try Soroban RPC first (since STELLAR_RPC_URL is usually a Soroban endpoint)
-    const rpcResponse = await axios.post(rpcUrl, {
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'getNetwork'
-    });
+    const sorobanCall = () =>
+      axios.post(rpcUrl, {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'getNetwork',
+      });
+    const rpcResponse = await executeRpcWithRetry(sorobanCall, 'getNetwork (Soroban)');
+
     if (rpcResponse.data && rpcResponse.data.result) {
       rpcPassphrase = rpcResponse.data.result.passphrase;
     }
   } catch (error) {
     // Fallback: Try Horizon endpoint if Soroban POST fails (e.g., 405 Method Not Allowed)
     try {
-      const response = await axios.get(rpcUrl);
+      const horizonCall = () => axios.get(rpcUrl);
+      const response = await executeRpcWithRetry(horizonCall, 'getNetwork (Horizon)');
       if (response.data && response.data.network_passphrase) {
         rpcPassphrase = response.data.network_passphrase;
       }
     } catch (horizonError) {
-      console.warn(`Warning: Could not fetch network details from RPC URL (${rpcUrl}): ${horizonError.message}`);
+      // After retries, this is a more serious warning.
+      console.warn(`Warning: Could not fetch network details from RPC URL (${rpcUrl}) after multiple attempts: ${horizonError.message}`);
     }
   }
 

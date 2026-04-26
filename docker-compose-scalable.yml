@@ -1,0 +1,274 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Master (Primary) Database
+  postgres-master:
+    image: postgres:15-alpine
+    container_name: vesting-vault-master
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: vesting_vault
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_REPLICATION_USER: replicator
+      POSTGRES_REPLICATION_PASSWORD: replicator_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_master_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+      - ./database/master-config/postgresql.conf:/etc/postgresql/postgresql.conf
+      - ./database/master-config/pg_hba.conf:/etc/postgresql/pg_hba.conf
+    networks:
+      - vesting-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d vesting_vault"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL Read Replica 1
+  postgres-replica-1:
+    image: postgres:15-alpine
+    container_name: vesting-vault-replica-1
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: vesting_vault
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      PGUSER: postgres
+      POSTGRES_MASTER_SERVICE: postgres-master
+      POSTGRES_REPLICATION_USER: replicator
+      POSTGRES_REPLICATION_PASSWORD: replicator_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_replica_1_data:/var/lib/postgresql/data
+      - ./database/replica-config/postgresql.conf:/etc/postgresql/postgresql.conf
+      - ./database/replica-config/pg_hba.conf:/etc/postgresql/pg_hba.conf
+      - ./database/replica-setup/setup-replica.sh:/docker-entrypoint-initdb.d/setup-replica.sh
+    networks:
+      - vesting-network
+    depends_on:
+      postgres-master:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d vesting_vault"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL Read Replica 2
+  postgres-replica-2:
+    image: postgres:15-alpine
+    container_name: vesting-vault-replica-2
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: vesting_vault
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      PGUSER: postgres
+      POSTGRES_MASTER_SERVICE: postgres-master
+      POSTGRES_REPLICATION_USER: replicator
+      POSTGRES_REPLICATION_PASSWORD: replicator_password
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_replica_2_data:/var/lib/postgresql/data
+      - ./database/replica-config/postgresql.conf:/etc/postgresql/postgresql.conf
+      - ./database/replica-config/pg_hba.conf:/etc/postgresql/pg_hba.conf
+      - ./database/replica-setup/setup-replica.sh:/docker-entrypoint-initdb.d/setup-replica.sh
+    networks:
+      - vesting-network
+    depends_on:
+      postgres-master:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d vesting_vault"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PgBouncer for Write Operations (Master)
+  pgbouncer-write:
+    image: pgbouncer/pgbouncer:latest
+    container_name: vesting-vault-pgbouncer-write
+    restart: unless-stopped
+    environment:
+      DATABASES_HOST: postgres-master
+      DATABASES_PORT: 5432
+      DATABASES_USER: postgres
+      DATABASES_PASSWORD: password
+      DATABASES_DBNAME: vesting_vault
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 200
+      DEFAULT_POOL_SIZE: 20
+      MIN_POOL_SIZE: 5
+      RESERVE_POOL_SIZE: 5
+      RESERVE_POOL_TIMEOUT: 5
+      SERVER_RESET_QUERY: DISCARD ALL
+      ADMIN_USERS: postgres
+      STATS_USERS: postgres
+    ports:
+      - "6432:6432"
+    networks:
+      - vesting-network
+    depends_on:
+      postgres-master:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "localhost", "-p", "6432"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PgBouncer for Read Operations (Replicas)
+  pgbouncer-read:
+    image: pgbouncer/pgbouncer:latest
+    container_name: vesting-vault-pgbouncer-read
+    restart: unless-stopped
+    environment:
+      DATABASES_HOST: postgres-replica-1,postgres-replica-2
+      DATABASES_PORT: 5432
+      DATABASES_USER: postgres
+      DATABASES_PASSWORD: password
+      DATABASES_DBNAME: vesting_vault
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 400
+      DEFAULT_POOL_SIZE: 40
+      MIN_POOL_SIZE: 10
+      RESERVE_POOL_SIZE: 10
+      RESERVE_POOL_TIMEOUT: 5
+      SERVER_RESET_QUERY: DISCARD ALL
+      ADMIN_USERS: postgres
+      STATS_USERS: postgres
+      CLIENT_TLS_SSLMODE: disable
+    ports:
+      - "6433:6432"
+    networks:
+      - vesting-network
+    depends_on:
+      postgres-replica-1:
+        condition: service_healthy
+      postgres-replica-2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "localhost", "-p", "6432"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: vesting-vault-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      # Write database (master)
+      DB_WRITE_HOST: pgbouncer-write
+      DB_WRITE_PORT: 6432
+      DB_WRITE_NAME: vesting_vault
+      DB_WRITE_USER: postgres
+      DB_WRITE_PASSWORD: password
+      # Read database (replicas)
+      DB_READ_HOST: pgbouncer-read
+      DB_READ_PORT: 6432
+      DB_READ_NAME: vesting_vault
+      DB_READ_USER: postgres
+      DB_READ_PASSWORD: password
+      # Legacy compatibility
+      DB_HOST: pgbouncer-write
+      DB_PORT: 6432
+      DB_NAME: vesting_vault
+      DB_USER: postgres
+      DB_PASSWORD: password
+      STELLAR_RPC_URL: ${STELLAR_RPC_URL:-https://soroban-testnet.stellar.org}
+      STELLAR_NETWORK_PASSPHRASE: ${STELLAR_NETWORK_PASSPHRASE:-"Test SDF Network ; September 2015"}
+      # Database cluster settings
+      DB_CLUSTER_MODE: true
+      DB_REPLICA_LAG_THRESHOLD: 1000
+    ports:
+      - "3000:3000"
+    depends_on:
+      pgbouncer-write:
+        condition: service_healthy
+      pgbouncer-read:
+        condition: service_healthy
+    networks:
+      - vesting-network
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Redis (for caching/sessions)
+  redis:
+    image: redis:7-alpine
+    container_name: vesting-vault-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - vesting-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # Database Health Monitor
+  db-health-monitor:
+    build:
+      context: ./database/health-monitor
+      dockerfile: Dockerfile
+    container_name: vesting-vault-db-health-monitor
+    restart: unless-stopped
+    environment:
+      POSTGRES_MASTER_HOST: postgres-master
+      POSTGRES_MASTER_PORT: 5432
+      POSTGRES_REPLICA_HOSTS: postgres-replica-1:5432,postgres-replica-2:5432
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: vesting_vault
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CHECK_INTERVAL: 30
+      LAG_THRESHOLD: 1000
+    networks:
+      - vesting-network
+    depends_on:
+      postgres-master:
+        condition: service_healthy
+      postgres-replica-1:
+        condition: service_healthy
+      postgres-replica-2:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+
+volumes:
+  postgres_master_data:
+    driver: local
+  postgres_replica_1_data:
+    driver: local
+  postgres_replica_2_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  vesting-network:
+    driver: bridge

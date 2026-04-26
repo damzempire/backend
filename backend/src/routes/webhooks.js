@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const Beneficiary = require("../models/beneficiary");
+const milestoneCelebrationService = require("../services/milestoneCelebrationService");
 
 /**
  * POST /webhooks/ses-bounces
@@ -88,6 +89,128 @@ router.post("/ses-bounces", async (req, res) => {
   } catch (error) {
     console.error("Error processing SES webhook:", error);
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * POST /webhooks/milestone-celebration
+ * Trigger celebration webhooks for major vesting milestones
+ */
+router.post("/milestone-celebration", async (req, res) => {
+  try {
+    const { milestone_id } = req.body;
+
+    if (!milestone_id) {
+      return res.status(400).json({ 
+        error: "Missing required parameter: milestone_id" 
+      });
+    }
+
+    console.log(`Triggering milestone celebration for milestone: ${milestone_id}`);
+    
+    const result = await milestoneCelebrationService.triggerCelebration(milestone_id);
+    
+    res.status(200).json({
+      message: "Milestone celebration webhooks triggered",
+      ...result
+    });
+
+  } catch (error) {
+    console.error("Error processing milestone celebration webhook:", error);
+    res.status(500).json({ 
+      error: "Internal server error",
+      details: error.message 
+    });
+  }
+});
+
+/**
+ * POST /webhooks/celebration-config
+ * Create a new milestone celebration webhook configuration
+ */
+router.post("/celebration-config", async (req, res) => {
+  try {
+    const webhook = await milestoneCelebrationService.createWebhook(req.body);
+    
+    res.status(201).json({
+      message: "Celebration webhook created successfully",
+      webhook
+    });
+
+  } catch (error) {
+    console.error("Error creating celebration webhook:", error);
+    res.status(500).json({ 
+      error: "Internal server error",
+      details: error.message 
+    });
+  }
+});
+
+/**
+ * GET /webhooks/celebration-config/:organizationId
+ * Get all celebration webhooks for an organization
+ */
+router.get("/celebration-config/:organizationId", async (req, res) => {
+  try {
+    const { organizationId } = req.params;
+    const webhooks = await milestoneCelebrationService.getWebhooks(organizationId);
+    
+    res.status(200).json({
+      message: "Celebration webhooks retrieved successfully",
+      webhooks
+    });
+
+  } catch (error) {
+    console.error("Error fetching celebration webhooks:", error);
+    res.status(500).json({ 
+      error: "Internal server error",
+      details: error.message 
+    });
+  }
+});
+
+/**
+ * PUT /webhooks/celebration-config/:webhookId
+ * Update a celebration webhook configuration
+ */
+router.put("/celebration-config/:webhookId", async (req, res) => {
+  try {
+    const { webhookId } = req.params;
+    const webhook = await milestoneCelebrationService.updateWebhook(webhookId, req.body);
+    
+    res.status(200).json({
+      message: "Celebration webhook updated successfully",
+      webhook
+    });
+
+  } catch (error) {
+    console.error("Error updating celebration webhook:", error);
+    res.status(500).json({ 
+      error: "Internal server error",
+      details: error.message 
+    });
+  }
+});
+
+/**
+ * DELETE /webhooks/celebration-config/:webhookId
+ * Delete a celebration webhook configuration
+ */
+router.delete("/celebration-config/:webhookId", async (req, res) => {
+  try {
+    const { webhookId } = req.params;
+    await milestoneCelebrationService.deleteWebhook(webhookId);
+    
+    res.status(200).json({
+      message: "Celebration webhook deleted successfully"
+    });
+
+  } catch (error) {
+    console.error("Error deleting celebration webhook:", error);
+    res.status(500).json({ 
+      error: "Internal server error",
+      details: error.message 
+    });
   }
 });
 

@@ -2,6 +2,7 @@ const cron = require('node-cron');
 const { Vault } = require('../models');
 const { sequelize } = require('../database/connection');
 const axios = require('axios');
+const { executeRpcWithRetry } = require('../../../rpc-retry');
 
 class VaultReconciliationJob {
   constructor() {
@@ -75,15 +76,16 @@ class VaultReconciliationJob {
       */
       
       // For now, return a mock value - replace with actual contract call
-      const response = await axios.get(`${this.stellarRpcUrl}/contracts/${this.contractAddress}/vault_count`, {
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        timeout: 10000
-      });
-      
+      const rpcCall = () =>
+        axios.get(`${this.stellarRpcUrl}/contracts/${this.contractAddress}/vault_count`, {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          timeout: 10000,
+        });
+
+      const response = await executeRpcWithRetry(rpcCall, 'getOnChainVaultCount');
       return parseInt(response.data.count, 10);
-      
     } catch (error) {
       console.error('Error fetching on-chain vault count:', error);
       
@@ -203,13 +205,15 @@ class VaultReconciliationJob {
       console.log('Searching for missing vaults...');
       
       // Placeholder: fetch from contract API
-      const response = await axios.get(`${this.stellarRpcUrl}/contracts/${this.contractAddress}/vaults`, {
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        timeout: 30000
-      });
-      
+      const rpcCall = () =>
+        axios.get(`${this.stellarRpcUrl}/contracts/${this.contractAddress}/vaults`, {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          timeout: 30000,
+        });
+
+      const response = await executeRpcWithRetry(rpcCall, 'findMissingVaults');
       const onChainVaults = response.data.vaults || [];
       const dbVaults = await Vault.findAll({ attributes: ['address'] });
       const dbVaultAddresses = new Set(dbVaults.map(v => v.address));

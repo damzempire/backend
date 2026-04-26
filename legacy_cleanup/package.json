@@ -1,0 +1,30 @@
+{
+  "name": "vesting-backend",
+  "version": "1.0.0",
+  "description": "API for Vesting Vault - Multi-Language Legal Hash Storage",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "jest --runInBand",
+    "test:e2e": "cypress run",
+    "test:e2e:open": "cypress open",
+    "test:e2e:headed": "cypress run --headed",
+    "test:e2e:ci": "cypress run --reporter junit --reporter-options 'mochaFile=cypress/results/e2e-[hash].xml'",
+    "e2e:setup": "bash scripts/e2e-setup.sh",
+    "e2e:teardown": "bash scripts/e2e-teardown.sh",
+    "e2e:full": "bash scripts/e2e-setup.sh && npm run test:e2e:ci; bash scripts/e2e-teardown.sh"
+  },
+  "dependencies": {
+    "@apollo/server": "^5.4.0",
+    "@nestjs/platform-socket.io": "^11.1.14",
+    "@nestjs/websockets": "^11.1.14",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "axios": "^1.7.0",
+    "cypress": "^13.0.0",
+    "mocha-junit-reporter": "^2.2.1"
+  }
+}
