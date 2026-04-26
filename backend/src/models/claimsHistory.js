@@ -32,10 +32,21 @@ const ClaimsHistory = sequelize.define('ClaimsHistory', {
     type: DataTypes.BIGINT,
     allowNull: false,
   },
+  event_index: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 0,
+    comment: 'Event index within the transaction for idempotency',
+  },
   price_at_claim_usd: {
     type: DataTypes.DECIMAL(36, 18),
     allowNull: true,
     comment: 'Token price in USD at the time of claim for realized gains calculation',
+  },
+  conversion_event_id: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    comment: 'Associated conversion event ID if claim was followed by immediate swap',
   },
   created_at: {
     type: DataTypes.DATE,
@@ -61,7 +72,7 @@ const ClaimsHistory = sequelize.define('ClaimsHistory', {
       fields: ['claim_timestamp'],
     },
     {
-      fields: ['transaction_hash'],
+      fields: ['transaction_hash', 'event_index'],
       unique: true,
     },
   ],
@@ -73,6 +84,12 @@ ClaimsHistory.associate = function (models) {
     foreignKey: 'token_address',
     sourceKey: 'address',
     as: 'token'
+  });
+
+  ClaimsHistory.belongsTo(models.ConversionEvent, {
+    foreignKey: 'conversion_event_id',
+    sourceKey: 'id',
+    as: 'conversionEvent'
   });
 };
 

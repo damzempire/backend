@@ -146,7 +146,8 @@ class ClaimCalculator {
     }
 
     // Calculate vested amount using the new formula: Total_Vested = (Elapsed_Time * Total_Allocation) / Total_Duration
-    const elapsedTimeInSeconds = Math.floor((asOfDate - subSchedule.vesting_start_date) / 1000);
+    // Calculate vested amount using the new formula: Total_Vested = (Elapsed_Time * Total_Allocation) / Total_Duration
+    const elapsedTimeInSeconds = (asOfDate - subSchedule.vesting_start_date) / 1000;
     const totalAllocation = parseFloat(subSchedule.top_up_amount);
     const totalDurationInSeconds = subSchedule.vesting_duration;
     

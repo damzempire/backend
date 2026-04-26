@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: vesting-vault-service
+  namespace: vesting-vault
+  labels:
+    app: vesting-vault
+spec:
+  type: ClusterIP
+  selector:
+    app: vesting-vault
+    version: blue  # This will be updated during blue-green switch
+  ports:
+  - name: http
+    port: 80
+    targetPort: 3000
+    protocol: TCP
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800  # 3 hours sticky sessions
