@@ -3,7 +3,7 @@
 const { Vault, Beneficiary, SubSchedule } = require('../models');
 const { sequelize } = require('../database/connection');
 const auditLogger = require('./auditLogger');
-const AuditService = require('./auditService');
+const cacheInvalidationService = require('./cacheInvalidationService');
 
 class VestingService {
   /**
@@ -50,12 +50,23 @@ class VestingService {
 
         // Create beneficiaries if provided
         if (Array.isArray(vaultData.beneficiaries) && vaultData.beneficiaries.length > 0) {
-          await Promise.all(
+          const beneficiaries = await Promise.all(
             vaultData.beneficiaries.map((b) =>
               Beneficiary.create({
                 vault_id: vault.id,
                 address: b.address,
                 total_allocated: b.allocation || 0,
+              })
+            )
+          );
+
+          // Invalidate cache for each beneficiary
+          await Promise.all(
+            beneficiaries.map(beneficiary =>
+              cacheInvalidationService.invalidateCacheAfterGrantIssuance({
+                beneficiaryAddress: beneficiary.address,
+                vaultId: vault.id,
+                orgId: vault.org_id
               })
             )
           );
@@ -70,13 +81,10 @@ class VestingService {
           tag: vault.tag,
         });
 
-        // Immutable Audit Log
-        await AuditService.logAction({
-          adminPubkey: adminAddress,
-          action: AuditService.ACTIONS.CREATE_VESTING_SCHEDULE,
-          ipAddress: options?.ipAddress || 'unknown', // Need to pass IP down or extract from context
-          payload: vaultData,
-          resourceId: vault.address
+        // Invalidate cache for vault creation
+        await cacheInvalidationService.invalidateCacheForEvent('vault_created', {
+          vaultId: vault.id,
+          orgId: vault.org_id
         });
 
         return vault;

@@ -1,22 +1,16 @@
-const express = require("express");
-const cors = require("cors");
-const dotenv = require("dotenv");
-const http = require("http");
-const path = require("path");
+// Initialize OpenTelemetry tracing first - must be imported before any other modules
+const { initializeTracing } = require('./tracing/tracing');
+initializeTracing();
 
-// Bridge to NestJS
-require('ts-node/register');
-const { bootstrapNest } = require('./nest-bootstrap');
-const { getQueueToken } = require('@nestjs/bullmq');
-const { ThrottlerService } = require('@nestjs/throttler');
-const { rateLimit } = require("express-rate-limit");
-const {
-  walletRateLimitMiddleware,
-} = require("./middleware/wallet-ratelimit.middleware");
-const SEP12Module = require("./modules/sep12-kyc/sep12.module");
+const express = require('express');
+const cors = require('cors');
+const dotenv = require('dotenv');
+const http = require('http');
+const { rateLimit } = require('express-rate-limit');
+const { walletRateLimitMiddleware } = require('./middleware/wallet-ratelimit.middleware');
 
-const Sentry = require("@sentry/node");
-const { nodeProfilingIntegration } = require("@sentry/profiling-node");
+const Sentry = require('@sentry/node');
+const { nodeProfilingIntegration } = require('@sentry/profiling-node');
 
 // Import swagger documentation
 const swaggerUi = require("swagger-ui-express");
