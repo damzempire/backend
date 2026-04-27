@@ -5,6 +5,7 @@ initializeTracing();
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const { strictCors, helmetMiddleware } = require('./middleware/security.middleware');
 const http = require('http');
 const { rateLimit } = require('express-rate-limit');
 const { walletRateLimitMiddleware } = require('./middleware/wallet-ratelimit.middleware');
@@ -115,8 +116,9 @@ if (process.env.SENTRY_DSN && Sentry.Handlers) {
 const { tracingMiddleware } = require("./middleware/tracing.middleware");
 app.use(tracingMiddleware);
 
-// Middleware
-app.use(cors());
+// Security: Helmet (CSP, HSTS, X-Frame-Options, …) + strict CORS (Issue #260)
+app.use(helmetMiddleware);
+app.use(strictCors);
 app.use(express.json());
 app.use(require("cookie-parser")());
 
