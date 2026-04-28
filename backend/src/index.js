@@ -4,6 +4,7 @@ const dotenv = require('dotenv');
 const http = require('http');
 const { rateLimit } = require('express-rate-limit');
 const { walletRateLimitMiddleware } = require('./middleware/wallet-ratelimit.middleware');
+const requestDeduplicationMiddleware = require('./middleware/requestDeduplication.middleware');
 
 const Sentry = require('@sentry/node');
 const { nodeProfilingIntegration } = require('@sentry/profiling-node');
@@ -45,6 +46,13 @@ app.use(require('cookie-parser')());
 
 // Apply wallet-based rate limiting to all API routes
 app.use('/api', walletRateLimitMiddleware);
+
+// Apply request deduplication middleware to heavy aggregation endpoints
+app.use('/api', requestDeduplicationMiddleware.middleware({
+  enabled: true,
+  skipPaths: ['/auth', '/admin/revoke', '/admin/create', '/admin/transfer', '/claims'],
+  skipMethods: ['POST', 'PUT', 'DELETE', 'PATCH']
+}));
 
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs));
 
@@ -679,6 +687,49 @@ app.get('/api/token/:address/distribution', async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching token distribution:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// De-duplication management endpoints
+app.get('/api/admin/deduplication/stats', async (req, res) => {
+  try {
+    const stats = requestDeduplicationMiddleware.getStats();
+    res.json({
+      success: true,
+      data: stats
+    });
+  } catch (error) {
+    console.error('Error getting de-duplication stats:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.post('/api/admin/deduplication/clear', async (req, res) => {
+  try {
+    const { operationType } = req.body;
+    
+    if (operationType) {
+      await requestDeduplicationMiddleware.clearOperationCache(operationType);
+      res.json({
+        success: true,
+        message: `Cache cleared for operation: ${operationType}`
+      });
+    } else {
+      await requestDeduplicationMiddleware.clearAllCache();
+      res.json({
+        success: true,
+        message: 'All de-duplication cache cleared'
+      });
+    }
+  } catch (error) {
+    console.error('Error clearing de-duplication cache:', error);
     res.status(500).json({
       success: false,
       error: error.message
