@@ -9,6 +9,7 @@ const {
   scValToNative,
 } = require('@stellar/stellar-sdk');
 const { AssetDecimalNormalizer } = require('./assetDecimalNormalizer');
+const { DatabaseCircuitBreaker } = require('../utils/databaseCircuitBreaker');
 
 /**
  * Service for managing vesting schedules including consolidation and merging functionality.
@@ -19,10 +20,65 @@ class VestingScheduleManager {
     this.server = config.soroban.rpcUrl ? new rpc.Server(config.soroban.rpcUrl) : null;
     this.contractId = config.soroban.contractId;
     this.decimalNormalizer = new AssetDecimalNormalizer();
+    
+    // Initialize database circuit breaker for mass unlock protection
+    this.databaseCircuitBreaker = new DatabaseCircuitBreaker({
+      failureThreshold: config.databaseCircuitBreaker?.failureThreshold || 15,
+      resetTimeout: config.databaseCircuitBreaker?.resetTimeout || 180000,
+      maxConcurrentWrites: config.databaseCircuitBreaker?.maxConcurrentWrites || 30,
+      writeTimeoutThreshold: config.databaseCircuitBreaker?.writeTimeoutThreshold || 3000,
+      massUnlockThreshold: config.databaseCircuitBreaker?.massUnlockThreshold || 50,
+      massUnlockWindow: config.databaseCircuitBreaker?.massUnlockWindow || 60000,
+      batchSize: config.databaseCircuitBreaker?.batchSize || 5,
+      onStateChange: (stateChange) => {
+        console.warn('VestingScheduleManager Database Circuit Breaker state change', stateChange);
+      },
+      onMassUnlockDetected: (massUnlock) => {
+        console.warn('VestingScheduleManager Mass unlock event detected', massUnlock);
+      },
+      onThrottlingAdjustment: (adjustment) => {
+        console.info('VestingScheduleManager Database throttling adjusted', adjustment);
+      }
+    });
   }
 
   getContract() {
     return new Contract(this.contractId);
+  }
+
+  /**
+   * Execute database operation through circuit breaker for mass unlock protection
+   */
+  async executeDatabaseOperation(operation, context = {}) {
+    try {
+      return await this.databaseCircuitBreaker.executeWrite(operation, {
+        operation: `vesting_${context.operation || 'unknown'}`,
+        beneficiaryAddress: context.beneficiaryAddress,
+        scheduleId: context.scheduleId
+      });
+    } catch (error) {
+      // Check if this is a circuit breaker error
+      if (error.message.includes('circuit breaker') || 
+          error.message.includes('Maximum concurrent writes') ||
+          error.message.includes('Database write timeout')) {
+        console.warn('VestingScheduleManager database operation rejected by circuit breaker', {
+          operation: context.operation,
+          circuitBreakerState: this.databaseCircuitBreaker.getState().state,
+          error: error.message
+        });
+        throw new Error(`Database circuit breaker active: ${error.message}`);
+      }
+      
+      // Re-throw other errors
+      throw error;
+    }
+  }
+
+  /**
+   * Get circuit breaker statistics for monitoring
+   */
+  getCircuitBreakerStats() {
+    return this.databaseCircuitBreaker.getState();
   }
 
   async consolidateSchedules(beneficiaryAddress, scheduleId1, scheduleId2, adminPublicKey, adminSignature) {
