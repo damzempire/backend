@@ -241,6 +241,7 @@ const dividendService = require("./services/dividendService");
 const accountConsolidationService = require("./services/accountConsolidationService");
 const VaultService = require("./services/vaultService");
 const batchRevocationService = require("./services/batchRevocationService");
+const shadowIndexingRoutes = require("./routes/shadowIndexingRoutes");
 const monthlyReportJob = require("./jobs/monthlyReportJob");
 const { VaultReconciliationJob } = require("./jobs/vaultReconciliationJob");
 const vaultArchivalJob = require("./jobs/vaultArchivalJob");
@@ -534,6 +535,9 @@ app.use("/api/ledger-reorg", require('./routes/ledgerReorg'));
 
 // Mount vesting history routes (optimized PostgreSQL queries)
 app.use("/api/vesting-history", require('./routes/vestingHistory'));
+
+// Mount shadow-indexing routes (real-time consistency monitoring)
+app.use("/api/shadow-indexing", shadowIndexingRoutes);
 
 // Historical price tracking job management endpoints
 app.post("/api/admin/jobs/historical-prices/start", async (req, res) => {
