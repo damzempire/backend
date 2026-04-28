@@ -1,19 +1,42 @@
-name: Vesting API Tests
+name: Vesting Vault Tests
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "develop", "feature/*" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "develop" ]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    
     steps:
-      - uses: actions/checkout@v3
-      - name: Use Node.js
-        uses: actions/setup-node@v3
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
-      - run: npm ci
-      - run: npm test
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+          
+      - name: Install dependencies
+        working-directory: ./backend
+        run: npm ci
+        
+      - name: Create environment file
+        working-directory: ./backend
+        run: cp .env.example .env
+        
+      - name: Create data directory
+        working-directory: ./backend
+        run: mkdir -p data
+        
+      - name: Run backend tests
+        working-directory: ./backend
+        run: npm test
+        
+      - name: Generate coverage report
+        working-directory: ./backend
+        run: npm run test:coverage
+

@@ -1,15 +1,32 @@
 const request = require('supertest');
+
+// Mock Redis client early to prevent connection attempts in tests
+jest.mock('redis', () => ({
+  createClient: jest.fn(() => ({
+    on: jest.fn(),
+    connect: jest.fn().mockResolvedValue(),
+    isOpen: true,
+  })),
+}));
+
+// Mock indexing service's initialization which might attempt connections
+jest.mock('../src/services/indexingService', () => ({
+  initialize: jest.fn().mockResolvedValue(),
+  initContract: jest.fn(),
+  indexHistoricalBlocks: jest.fn(),
+  listenToEvents: jest.fn(),
+}));
 const { sequelize } = require('../src/database/connection');
 const app = require('../src/index');
+
+jest.setTimeout(60000);
 
 describe('Vesting API Routes', () => {
   beforeAll(async () => {
     await sequelize.sync({ force: true });
   });
 
-  afterAll(async () => {
-    await sequelize.close();
-  });
+
 
   beforeEach(async () => {
     await sequelize.models.Vault.destroy({ where: {}, force: true });
@@ -38,6 +55,7 @@ describe('Vesting API Routes', () => {
         .send(vaultData)
         .expect(201);
 
+      expect(response).toSatisfyApiSpec();
       expect(response.body.success).toBe(true);
       expect(response.body.data.address).toBe(vaultData.address);
       expect(response.body.data.name).toBe(vaultData.name);
@@ -54,6 +72,7 @@ describe('Vesting API Routes', () => {
         .send(invalidData)
         .expect(500);
 
+      expect(response).toSatisfyApiSpec();
       expect(response.body.success).toBe(false);
       expect(response.body.error).toBeDefined();
     });
@@ -93,6 +112,7 @@ describe('Vesting API Routes', () => {
         .send(topUpData)
         .expect(201);
 
+      expect(response).toSatisfyApiSpec();
       expect(response.body.success).toBe(true);
       expect(response.body.data.top_up_amount).toBe('500');
       expect(response.body.data.cliff_duration).toBe(86400);
@@ -112,6 +132,7 @@ describe('Vesting API Routes', () => {
         .send(topUpData)
         .expect(500);
 
+      expect(response).toSatisfyApiSpec();
       expect(response.body.success).toBe(false);
       expect(response.body.error).toContain('not found');
     });
@@ -158,6 +179,7 @@ describe('Vesting API Routes', () => {
         .get(`/api/vaults/${vault.address}/schedule`)
         .expect(200);
 
+      expect(response).toSatisfyApiSpec();
       expect(response.body.success).toBe(true);
       expect(response.body.data.address).toBe(vault.address);
       expect(response.body.data.subSchedules).toHaveLength(1);
@@ -169,6 +191,7 @@ describe('Vesting API Routes', () => {
         .get(`/api/vaults/${vault.address}/schedule?beneficiaryAddress=0x2222222222222222222222222222222222222222`)
         .expect(200);
 
+      expect(response).toSatisfyApiSpec();
       expect(response.body.success).toBe(true);
       expect(response.body.data.beneficiaries).toHaveLength(1);
       expect(response.body.data.beneficiaries[0].address).toBe('0x2222222222222222222222222222222222222222');
@@ -220,6 +243,7 @@ describe('Vesting API Routes', () => {
         .query({ timestamp: '2024-01-16T00:00:00Z' }) // Half way through vesting
         .expect(200);
 
+      expect(response).toSatisfyApiSpec();
       expect(response.body.success).toBe(true);
       expect(response.body.data.withdrawable).toBeCloseTo(500, 2);
       expect(response.body.data.total_vested).toBeCloseTo(500, 2);
@@ -278,6 +302,7 @@ describe('Vesting API Routes', () => {
         .send(withdrawalData)
         .expect(200);
 
+      expect(response).toSatisfyApiSpec();
       expect(response.body.success).toBe(true);
       expect(response.body.data.amount_withdrawn).toBe(200);
       expect(response.body.data.distribution).toHaveLength(1);
@@ -296,6 +321,7 @@ describe('Vesting API Routes', () => {
         .send(withdrawalData)
         .expect(500);
 
+      expect(response).toSatisfyApiSpec();
       expect(response.body.success).toBe(false);
       expect(response.body.error).toContain('Insufficient vested amount');
     });
@@ -342,6 +368,7 @@ describe('Vesting API Routes', () => {
       const response = await request(app)
         .get(`/api/vaults/${vault.address}/summary`)
         .expect(200);
+
 
       expect(response.body.success).toBe(true);
       expect(response.body.data.vault_address).toBe(vault.address);

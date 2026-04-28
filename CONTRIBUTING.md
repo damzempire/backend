@@ -121,6 +121,8 @@ Key environment variables:
 - `DB_NAME`: Database name (default: vesting_vault)
 - `DB_USER`: Database user (default: postgres)
 - `DB_PASSWORD`: Database password (default: password)
+- `STELLAR_RPC_URL`: Stellar RPC endpoint (e.g., https://soroban-testnet.stellar.org)
+- `STELLAR_NETWORK_PASSPHRASE`: Passphrase for the configured network
 
 ## Project Structure
 

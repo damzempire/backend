@@ -118,6 +118,31 @@ class FirebaseService {
   }
 
   /**
+   * Send integrity failure notification to multiple devices
+   * @param {string[]} tokens - Array of device tokens
+   * @param {string} vaultAddress - Vault contract address
+   * @returns {Promise<Object>} - Summary of successful and failed notifications
+   */
+  async sendIntegrityFailureNotification(tokens, vaultAddress) {
+    if (!this.initialized || !tokens || tokens.length === 0) {
+      return { successCount: 0, failureCount: 0 };
+    }
+
+    const notification = {
+      title: 'CRITICAL: Security Alert',
+      body: `Integrity failure detected for vault ${vaultAddress}. The vault has been blacklisted for your protection.`,
+    };
+
+    const data = {
+      type: 'VAULT_INTEGRITY_FAILED',
+      vaultAddress,
+      priority: 'CRITICAL',
+    };
+
+    return await this.sendToMultipleDevices(tokens, notification, data);
+  }
+
+  /**
    * Send push notification to multiple devices
    * @param {string[]} deviceTokens - Array of FCM device tokens
    * @param {Object} notification - Notification payload
@@ -233,6 +258,29 @@ class FirebaseService {
       type: 'CLIFF_PASSED',
       amount: amount.toString(),
       tokenSymbol,
+      action: 'open_app',
+    };
+
+    return await this.sendToMultipleDevices(deviceTokens, notification, data);
+  }
+
+  async sendLiquidityRiskAlertNotification(deviceTokens, payload) {
+    const notification = {
+      title: 'Liquidity Risk Alert',
+      body: payload.insufficientDepth
+        ? `${payload.tokenSymbol} order book cannot absorb a $${payload.orderUsd.toLocaleString()} sell order`
+        : `${payload.tokenSymbol} sell slippage reached ${payload.slippagePercent.toFixed(2)}%`,
+    };
+
+    const data = {
+      type: 'LIQUIDITY_RISK_ALERT',
+      vaultAddress: payload.vaultAddress,
+      vaultName: payload.vaultName,
+      tokenSymbol: payload.tokenSymbol,
+      orderUsd: payload.orderUsd.toString(),
+      slippagePercent: payload.slippagePercent.toFixed(2),
+      thresholdPercent: payload.thresholdPercent.toFixed(2),
+      insufficientDepth: payload.insufficientDepth ? 'true' : 'false',
       action: 'open_app',
     };
 

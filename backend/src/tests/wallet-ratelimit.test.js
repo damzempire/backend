@@ -1,5 +1,5 @@
-const { walletRateLimiter } = require('../src/util/wallet-ratelimit.util');
-const { walletRateLimitMiddleware, graphqlWalletRateLimitMiddleware } = require('../src/middleware/wallet-ratelimit.middleware');
+const { walletRateLimiter } = require('../util/wallet-ratelimit.util');
+const { walletRateLimitMiddleware, graphqlWalletRateLimitMiddleware } = require('../middleware/wallet-ratelimit.middleware');
 
 // Mock Redis for testing
 const mockRedis = {

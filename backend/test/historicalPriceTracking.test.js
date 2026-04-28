@@ -1,64 +1,460 @@
-const axios = require('axios');
+const request = require('supertest');
+const app = require('../src/index');
+const { sequelize } = require('../src/database/connection');
+const { 
+  Vault, 
+  SubSchedule, 
+  Beneficiary, 
+  VestingMilestone, 
+  HistoricalTokenPrice, 
+  CostBasisReport 
+} = require('../src/models');
 
-const BASE_URL = 'http://localhost:3000';
+describe('Historical Price Tracking System', () => {
+  let testVault;
+  let testBeneficiary;
+  let testSubSchedule;
 
-// Test data for a sample claim
-const sampleClaim = {
-  user_address: '0x1234567890123456789012345678901234567890',
-  token_address: '0xA0b86a33E6441e6c8d0A1c9c8c8d8d8d8d8d8d8d', // Example token address
-  amount_claimed: '100.5',
-  claim_timestamp: '2024-01-15T10:30:00Z',
-  transaction_hash: '0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890',
-  block_number: 18500000
-};
+  beforeAll(async () => {
+    // Ensure database is synced
+    await sequelize.sync({ force: true });
+  });
 
-async function testHistoricalPriceTracking() {
-  console.log('🧪 Testing Historical Price Tracking Implementation\n');
+  beforeEach(async () => {
+    // Clean up database
+    await VestingMilestone.destroy({ where: {} });
+    await HistoricalTokenPrice.destroy({ where: {} });
+    await CostBasisReport.destroy({ where: {} });
+    await SubSchedule.destroy({ where: {} });
+    await Beneficiary.destroy({ where: {} });
+    await Vault.destroy({ where: {} });
 
-  try {
-    // Test 1: Health check
-    console.log('1. Testing health endpoint...');
-    const healthResponse = await axios.get(`${BASE_URL}/health`);
-    console.log('✅ Health check passed:', healthResponse.data);
+    // Create test data
+    testVault = await Vault.create({
+      address: '0xtest-vault-address',
+      name: 'Test Vault',
+      owner_address: '0xtest-owner',
+      token_address: '0xtest-token',
+      total_amount: '1000.0',
+      token_type: 'static'
+    });
 
-    // Test 2: Process a single claim
-    console.log('\n2. Testing single claim processing...');
-    const claimResponse = await axios.post(`${BASE_URL}/api/claims`, sampleClaim);
-    console.log('✅ Claim processed successfully:', claimResponse.data);
+    testBeneficiary = await Beneficiary.create({
+      vault_id: testVault.id,
+      address: '0xtest-beneficiary',
+      total_allocated: '500.0',
+      total_withdrawn: '0.0'
+    });
 
-    const claimId = claimResponse.data.data.id;
+    const vestingStart = new Date('2024-01-01');
+    const vestingEnd = new Date('2024-12-31');
+    const cliffDate = new Date('2024-03-01');
 
-    // Test 3: Process batch claims
-    console.log('\n3. Testing batch claim processing...');
-    const batchClaims = [
-      { ...sampleClaim, transaction_hash: '0x1111111111111111111111111111111111111111111111111111111111111111', amount_claimed: '50.25' },
-      { ...sampleClaim, transaction_hash: '0x2222222222222222222222222222222222222222222222222222222222222222', amount_claimed: '75.75' }
-    ];
-    
-    const batchResponse = await axios.post(`${BASE_URL}/api/claims/batch`, { claims: batchClaims });
-    console.log('✅ Batch claims processed:', batchResponse.data);
+    testSubSchedule = await SubSchedule.create({
+      vault_id: testVault.id,
+      top_up_amount: '500.0',
+      cliff_duration: 5184000, // 60 days in seconds
+      cliff_date: cliffDate,
+      vesting_start_date: vestingStart,
+      vesting_duration: 31536000, // 365 days in seconds
+      start_timestamp: vestingStart,
+      end_timestamp: vestingEnd,
+      transaction_hash: '0xtest-tx-hash',
+      amount_withdrawn: '0.0',
+      amount_released: '0.0',
+      is_active: true
+    });
+  });
 
-    // Test 4: Get realized gains
-    console.log('\n4. Testing realized gains calculation...');
-    const gainsResponse = await axios.get(`${BASE_URL}/api/claims/${sampleClaim.user_address}/realized-gains`);
-    console.log('✅ Realized gains calculated:', gainsResponse.data);
+  afterAll(async () => {
+    await sequelize.close();
+  });
 
-    // Test 5: Backfill prices (if there are any claims without prices)
-    console.log('\n5. Testing price backfill...');
-    const backfillResponse = await axios.post(`${BASE_URL}/api/claims/backfill-prices`);
-    console.log('✅ Price backfill completed:', backfillResponse.data);
+  describe('Health Check', () => {
+    test('should return healthy status', async () => {
+      const response = await request(app)
+        .get('/api/historical-prices/health')
+        .expect(200);
 
-    console.log('\n🎉 All tests passed! Historical price tracking is working correctly.');
+      expect(response.body.success).toBe(true);
+      expect(response.body.status).toBe('healthy');
+      expect(response.body.data).toHaveProperty('milestones_count');
+      expect(response.body.data).toHaveProperty('cached_prices_count');
+      expect(response.body.data).toHaveProperty('reports_count');
+    });
+  });
 
-  } catch (error) {
-    console.error('❌ Test failed:', error.response?.data || error.message);
-    process.exit(1);
-  }
-}
+  describe('Milestone Generation', () => {
+    test('should generate vesting milestones for a vault', async () => {
+      const response = await request(app)
+        .post('/api/historical-prices/generate-milestones')
+        .send({
+          vaultId: testVault.id,
+          incrementDays: 30,
+          forceRefresh: false
+        })
+        .expect(200);
 
-// Run tests if this file is executed directly
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.milestones_count).toBeGreaterThan(0);
+      expect(response.body.data.milestones).toBeInstanceOf(Array);
+
+      // Verify milestones were created in database
+      const milestones = await VestingMilestone.findAll({
+        where: { vault_id: testVault.id }
+      });
+      expect(milestones.length).toBeGreaterThan(0);
+    });
+
+    test('should handle invalid vault ID', async () => {
+      const response = await request(app)
+        .post('/api/historical-prices/generate-milestones')
+        .send({
+          vaultId: '00000000-0000-0000-0000-000000000000'
+        })
+        .expect(500);
+
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toContain('not found');
+    });
+
+    test('should require vaultId parameter', async () => {
+      const response = await request(app)
+        .post('/api/historical-prices/generate-milestones')
+        .send({})
+        .expect(400);
+
+      expect(response.body.error).toContain('vaultId is required');
+    });
+  });
+
+  describe('Historical Prices', () => {
+    test('should fetch historical prices for a token', async () => {
+      // First create some test price data
+      await HistoricalTokenPrice.create({
+        token_address: '0xtest-token',
+        price_date: '2024-01-15',
+        price_usd: '1.50',
+        vwap_24h_usd: '1.48',
+        volume_24h_usd: '100000.0',
+        price_source: 'test_source',
+        data_quality: 'good'
+      });
+
+      const response = await request(app)
+        .get('/api/historical-prices/prices/0xtest-token')
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.token_address).toBe('0xtest-token');
+      expect(response.body.data.prices).toBeInstanceOf(Array);
+      expect(response.body.data.prices.length).toBe(1);
+      expect(response.body.data.prices[0]).toHaveProperty('price_usd');
+      expect(response.body.data.prices[0]).toHaveProperty('vwap_24h_usd');
+    });
+
+    test('should filter prices by date range', async () => {
+      // Create multiple price entries
+      await HistoricalTokenPrice.bulkCreate([
+        {
+          token_address: '0xtest-token',
+          price_date: '2024-01-01',
+          price_usd: '1.00',
+          vwap_24h_usd: '0.98',
+          price_source: 'test_source'
+        },
+        {
+          token_address: '0xtest-token',
+          price_date: '2024-01-15',
+          price_usd: '1.50',
+          vwap_24h_usd: '1.48',
+          price_source: 'test_source'
+        },
+        {
+          token_address: '0xtest-token',
+          price_date: '2024-02-01',
+          price_usd: '2.00',
+          vwap_24h_usd: '1.98',
+          price_source: 'test_source'
+        }
+      ]);
+
+      const response = await request(app)
+        .get('/api/historical-prices/prices/0xtest-token')
+        .query({
+          startDate: '2024-01-10',
+          endDate: '2024-01-20'
+        })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.prices.length).toBe(1);
+      expect(response.body.data.prices[0].date).toBe('2024-01-15');
+    });
+  });
+
+  describe('Vesting Milestones', () => {
+    beforeEach(async () => {
+      // Create test milestones
+      await VestingMilestone.create({
+        vault_id: testVault.id,
+        sub_schedule_id: testSubSchedule.id,
+        beneficiary_id: testBeneficiary.id,
+        milestone_date: new Date('2024-03-01'),
+        milestone_type: 'cliff_end',
+        vested_amount: '100.0',
+        cumulative_vested: '100.0',
+        token_address: '0xtest-token',
+        price_usd: '1.50',
+        vwap_24h_usd: '1.48',
+        price_source: 'test_source'
+      });
+    });
+
+    test('should fetch milestones for a beneficiary', async () => {
+      const response = await request(app)
+        .get('/api/historical-prices/milestones/0xtest-beneficiary')
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.milestones).toBeInstanceOf(Array);
+      expect(response.body.data.milestones.length).toBe(1);
+      expect(response.body.data.milestones[0]).toHaveProperty('milestone_type');
+      expect(response.body.data.milestones[0]).toHaveProperty('vested_amount');
+      expect(response.body.data.milestones[0]).toHaveProperty('price_usd');
+    });
+
+    test('should filter milestones by token address', async () => {
+      const response = await request(app)
+        .get('/api/historical-prices/milestones/0xtest-beneficiary')
+        .query({ tokenAddress: '0xtest-token' })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.milestones.length).toBe(1);
+    });
+
+    test('should support pagination', async () => {
+      const response = await request(app)
+        .get('/api/historical-prices/milestones/0xtest-beneficiary')
+        .query({ limit: 10, offset: 0 })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toHaveProperty('pagination');
+      expect(response.body.data.pagination).toHaveProperty('total');
+      expect(response.body.data.pagination).toHaveProperty('limit');
+      expect(response.body.data.pagination).toHaveProperty('offset');
+    });
+  });
+
+  describe('Cost Basis Reports', () => {
+    beforeEach(async () => {
+      // Create test milestones for 2024
+      await VestingMilestone.bulkCreate([
+        {
+          vault_id: testVault.id,
+          sub_schedule_id: testSubSchedule.id,
+          beneficiary_id: testBeneficiary.id,
+          milestone_date: new Date('2024-03-01'),
+          milestone_type: 'cliff_end',
+          vested_amount: '100.0',
+          cumulative_vested: '100.0',
+          token_address: '0xtest-token',
+          price_usd: '1.50',
+          vwap_24h_usd: '1.48',
+          price_source: 'test_source'
+        },
+        {
+          vault_id: testVault.id,
+          sub_schedule_id: testSubSchedule.id,
+          beneficiary_id: testBeneficiary.id,
+          milestone_date: new Date('2024-06-01'),
+          milestone_type: 'vesting_increment',
+          vested_amount: '150.0',
+          cumulative_vested: '250.0',
+          token_address: '0xtest-token',
+          price_usd: '2.00',
+          vwap_24h_usd: '1.98',
+          price_source: 'test_source'
+        }
+      ]);
+    });
+
+    test('should generate cost basis report for a beneficiary', async () => {
+      const response = await request(app)
+        .get('/api/historical-prices/cost-basis/0xtest-beneficiary/0xtest-token/2024')
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toHaveProperty('user_address');
+      expect(response.body.data).toHaveProperty('token_address');
+      expect(response.body.data).toHaveProperty('report_year');
+      expect(response.body.data).toHaveProperty('total_vested_amount');
+      expect(response.body.data).toHaveProperty('total_cost_basis_usd');
+      expect(response.body.data).toHaveProperty('milestones');
+      expect(response.body.data.milestones).toBeInstanceOf(Array);
+      expect(response.body.data.milestones.length).toBe(2);
+
+      // Verify calculations
+      expect(parseFloat(response.body.data.total_vested_amount)).toBe(250.0);
+      expect(parseFloat(response.body.data.total_cost_basis_usd)).toBeCloseTo(448.0, 1); // 100*1.48 + 150*1.98
+    });
+
+    test('should handle invalid year', async () => {
+      const response = await request(app)
+        .get('/api/historical-prices/cost-basis/0xtest-beneficiary/0xtest-token/invalid')
+        .expect(400);
+
+      expect(response.body.error).toContain('Invalid year');
+    });
+
+    test('should handle no milestones found', async () => {
+      const response = await request(app)
+        .get('/api/historical-prices/cost-basis/0xtest-beneficiary/0xtest-token/2023')
+        .expect(500);
+
+      expect(response.body.error).toContain('No vesting milestones found');
+    });
+  });
+
+  describe('Cost Basis Report Management', () => {
+    beforeEach(async () => {
+      // Create a test report
+      await CostBasisReport.create({
+        user_address: '0xtest-beneficiary',
+        token_address: '0xtest-token',
+        report_year: 2024,
+        total_vested_amount: '250.0',
+        total_cost_basis_usd: '448.0',
+        total_milestones: 2,
+        report_data: {
+          milestones: [],
+          summary: { average_price_usd: 1.792 }
+        }
+      });
+    });
+
+    test('should fetch cost basis reports for a user', async () => {
+      const response = await request(app)
+        .get('/api/historical-prices/reports/0xtest-beneficiary')
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.user_address).toBe('0xtest-beneficiary');
+      expect(response.body.data.reports).toBeInstanceOf(Array);
+      expect(response.body.data.reports.length).toBe(1);
+      expect(response.body.data.reports[0]).toHaveProperty('report_year');
+      expect(response.body.data.reports[0]).toHaveProperty('total_cost_basis_usd');
+    });
+
+    test('should fetch detailed cost basis report', async () => {
+      const response = await request(app)
+        .get('/api/historical-prices/reports/0xtest-beneficiary/0xtest-token/2024/details')
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toHaveProperty('milestones');
+      expect(response.body.data).toHaveProperty('summary');
+    });
+
+    test('should handle report not found', async () => {
+      const response = await request(app)
+        .get('/api/historical-prices/reports/0xtest-beneficiary/0xtest-token/2023/details')
+        .expect(404);
+
+      expect(response.body.error).toContain('not found');
+    });
+  });
+
+  describe('Price Backfilling', () => {
+    test('should backfill missing prices', async () => {
+      // Create milestones without prices
+      await VestingMilestone.create({
+        vault_id: testVault.id,
+        sub_schedule_id: testSubSchedule.id,
+        beneficiary_id: testBeneficiary.id,
+        milestone_date: new Date('2024-03-01'),
+        milestone_type: 'cliff_end',
+        vested_amount: '100.0',
+        cumulative_vested: '100.0',
+        token_address: '0xtest-token',
+        price_usd: null,
+        vwap_24h_usd: null,
+        price_source: null
+      });
+
+      const response = await request(app)
+        .post('/api/historical-prices/backfill')
+        .send({
+          tokenAddress: '0xtest-token',
+          batchSize: 10
+        })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toHaveProperty('updated_count');
+    });
+  });
+
+  describe('Job Management', () => {
+    test('should get job statistics', async () => {
+      const response = await request(app)
+        .get('/api/admin/jobs/historical-prices/stats')
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toHaveProperty('totalRuns');
+      expect(response.body.data).toHaveProperty('successfulRuns');
+      expect(response.body.data).toHaveProperty('isRunning');
+    });
+
+    test('should start the job', async () => {
+      const response = await request(app)
+        .post('/api/admin/jobs/historical-prices/start')
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.message).toContain('started');
+    });
+
+    test('should stop the job', async () => {
+      const response = await request(app)
+        .post('/api/admin/jobs/historical-prices/stop')
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.message).toContain('stopped');
+    });
+  });
+
+  describe('Error Handling', () => {
+    test('should handle database connection errors gracefully', async () => {
+      // This test would require mocking database failures
+      // For now, we'll test basic error response format
+      const response = await request(app)
+        .get('/api/historical-prices/milestones/invalid-address')
+        .expect(200);
+
+      expect(response.body).toHaveProperty('success');
+      expect(response.body).toHaveProperty('data');
+    });
+
+    test('should validate required parameters', async () => {
+      const response = await request(app)
+        .post('/api/historical-prices/generate-milestones')
+        .send({})
+        .expect(400);
+
+      expect(response.body.success).toBe(false);
+      expect(response.body).toHaveProperty('error');
+    });
+  });
+});
+
+// Helper function to run tests
 if (require.main === module) {
-  testHistoricalPriceTracking();
+  console.log('Running Historical Price Tracking tests...');
+  console.log('Make sure the database is running and accessible.');
+  console.log('Run with: npm test -- --testPathPattern=historicalPriceTracking.test.js');
 }
-
-module.exports = { testHistoricalPriceTracking, sampleClaim };

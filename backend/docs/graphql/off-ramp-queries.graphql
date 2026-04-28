@@ -1,0 +1,197 @@
+# Off-Ramp Quote Queries
+
+# Get a single off-ramp quote (best available)
+query GetOffRampQuote {
+  offRampQuote(
+    tokenSymbol: "USDC"
+    tokenAmount: "1000"
+    fiatCurrency: "USD"
+  ) {
+    anchorDomain
+    assetCode
+    inputAmount
+    fiatCurrency
+    exchangeRate
+    grossAmount
+    fees {
+      swapFee
+      swapFeePercent
+      withdrawalFee
+      withdrawalFeeType
+      totalFees
+    }
+    netPayout
+    estimatedTime
+    minAmount
+    maxAmount
+    timestamp
+  }
+}
+
+# Get quotes from all available anchors for comparison
+query CompareOffRampQuotes {
+  offRampQuotes(
+    tokenSymbol: "USDC"
+    tokenAmount: "5000"
+    fiatCurrency: "USD"
+  ) {
+    anchorDomain
+    assetCode
+    inputAmount
+    exchangeRate
+    grossAmount
+    fees {
+      swapFee
+      swapFeePercent
+      withdrawalFee
+      withdrawalFeeType
+      totalFees
+    }
+    netPayout
+    estimatedTime
+  }
+}
+
+# Get liquidity estimate for a beneficiary
+query GetLiquidityEstimate {
+  liquidityEstimate(
+    vaultAddress: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+    beneficiaryAddress: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+    fiatCurrency: "USD"
+  ) {
+    tokenSymbol
+    claimableAmount
+    quotes {
+      anchorDomain
+      netPayout
+      fees {
+        totalFees
+      }
+    }
+    bestQuote {
+      anchorDomain
+      assetCode
+      inputAmount
+      fiatCurrency
+      exchangeRate
+      grossAmount
+      fees {
+        swapFee
+        swapFeePercent
+        withdrawalFee
+        withdrawalFeeType
+        totalFees
+      }
+      netPayout
+      estimatedTime
+    }
+    totalCostOfLiquidity
+  }
+}
+
+# Get liquidity estimate with EUR conversion
+query GetLiquidityEstimateEUR {
+  liquidityEstimate(
+    vaultAddress: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+    beneficiaryAddress: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+    fiatCurrency: "EUR"
+  ) {
+    tokenSymbol
+    claimableAmount
+    bestQuote {
+      anchorDomain
+      netPayout
+      fiatCurrency
+      fees {
+        totalFees
+      }
+    }
+    totalCostOfLiquidity
+  }
+}
+
+# Get quote for specific anchor
+query GetQuoteFromSpecificAnchor {
+  offRampQuote(
+    tokenSymbol: "USDC"
+    tokenAmount: "2500"
+    fiatCurrency: "USD"
+    anchorDomain: "testanchor.stellar.org"
+  ) {
+    anchorDomain
+    netPayout
+    fees {
+      swapFee
+      withdrawalFee
+      totalFees
+    }
+  }
+}
+
+# Combined query: Vault info with liquidity estimate
+query VaultWithLiquidityEstimate($vaultAddress: String!, $beneficiaryAddress: String!) {
+  vault(address: $vaultAddress) {
+    address
+    name
+    token_address
+    total_amount
+    beneficiaries {
+      address
+      total_allocated
+      total_withdrawn
+    }
+  }
+  
+  liquidityEstimate(
+    vaultAddress: $vaultAddress
+    beneficiaryAddress: $beneficiaryAddress
+    fiatCurrency: "USD"
+  ) {
+    tokenSymbol
+    claimableAmount
+    bestQuote {
+      netPayout
+      fees {
+        totalFees
+      }
+    }
+    totalCostOfLiquidity
+  }
+}
+
+# Query for dashboard: Beneficiary with liquidity info
+query BeneficiaryDashboard($vaultAddress: String!, $beneficiaryAddress: String!) {
+  beneficiary(
+    vaultAddress: $vaultAddress
+    beneficiaryAddress: $beneficiaryAddress
+  ) {
+    address
+    total_allocated
+    total_withdrawn
+    vault {
+      name
+      token_address
+    }
+  }
+  
+  liquidityEstimate(
+    vaultAddress: $vaultAddress
+    beneficiaryAddress: $beneficiaryAddress
+    fiatCurrency: "USD"
+  ) {
+    tokenSymbol
+    claimableAmount
+    bestQuote {
+      anchorDomain
+      grossAmount
+      netPayout
+      fees {
+        swapFee
+        withdrawalFee
+        totalFees
+      }
+      estimatedTime
+    }
+    totalCostOfLiquidity
+  }
+}

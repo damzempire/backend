@@ -47,7 +47,8 @@ class AdminService {
         totalAmount,
         startDate,
         endDate,
-        cliffDate = null
+        cliffDate = null,
+        tokenType = 'static' // Default to 'static' for backward compatibility
       } = vaultConfig;
 
       return await vestingService.createVault(
@@ -58,7 +59,8 @@ class AdminService {
         totalAmount,
         startDate,
         endDate,
-        cliffDate
+        cliffDate,
+        tokenType // Pass tokenType to vestingService
       );
     } catch (error) {
       console.error('Error in createVault:', error);

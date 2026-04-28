@@ -10,6 +10,54 @@ class NotificationService {
   }
 
   /**
+   * Notify beneficiaries about an integrity failure in their vault
+   * @param {Object} vault - Vault model instance
+   */
+  async notifyIntegrityFailure(vault) {
+    try {
+      console.log(`CRITICAL: Integrity failure detected for vault ${vault.address}. Notifying beneficiaries...`);
+      
+      const beneficiaries = await Beneficiary.findAll({
+        where: { vault_id: vault.id }
+      });
+
+      for (const beneficiary of beneficiaries) {
+        // Send email notification
+        if (beneficiary.email) {
+          try {
+            await emailService.sendIntegrityFailureEmail(beneficiary.email, vault.address);
+            console.log(`Integrity failure email sent to ${beneficiary.email}`);
+          } catch (emailError) {
+            console.error(`Failed to send integrity failure email to ${beneficiary.email}:`, emailError);
+          }
+        }
+
+        // Send push notification
+        const deviceTokens = await this.getUserDeviceTokens(beneficiary.address);
+        if (deviceTokens.length > 0 && firebaseService.isInitialized()) {
+          try {
+            const tokens = deviceTokens.map(dt => dt.device_token);
+            await firebaseService.sendIntegrityFailureNotification(tokens, vault.address);
+            console.log(`Integrity failure push notification sent to beneficiary ${beneficiary.address}`);
+          } catch (pushError) {
+            console.error(`Failed to send integrity failure push notification to ${beneficiary.address}:`, pushError);
+          }
+        }
+
+        // Record notification
+        await Notification.create({
+          beneficiary_id: beneficiary.id,
+          vault_id: vault.id,
+          type: 'VAULT_INTEGRITY_FAILED',
+          sent_at: new Date()
+        });
+      }
+    } catch (error) {
+      console.error(`Error notifying integrity failure for vault ${vault.address}:`, error);
+    }
+  }
+
+  /**
    * Start the notification cron job
    */
   start() {

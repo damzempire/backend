@@ -22,11 +22,6 @@ const SubSchedule = sequelize.define('SubSchedule', {
     allowNull: false,
     comment: 'Amount of tokens added in this top-up',
   },
-  created_at: {
-
-    type: DataTypes.DATE,
-    allowNull: false,
-  },
   cliff_duration: {
     type: DataTypes.INTEGER,
     allowNull: false,
@@ -60,16 +55,17 @@ const SubSchedule = sequelize.define('SubSchedule', {
     allowNull: false,
     comment: 'Transaction hash for this top-up',
   },
-  block_number: {
-    type: DataTypes.STRING,
-    allowNull: false,
-    comment: 'Block number for this top-up',
-  },
   amount_withdrawn: {
     type: DataTypes.DECIMAL(36, 18),
     allowNull: false,
     defaultValue: 0,
     comment: 'Amount withdrawn from this sub-schedule',
+  },
+  cumulative_claimed_amount: {
+    type: DataTypes.DECIMAL(36, 18),
+    allowNull: false,
+    defaultValue: 0,
+    comment: 'Cumulative amount claimed to prevent dust loss from integer division truncation',
   },
   amount_released: {
     type: DataTypes.DECIMAL(36, 18),
@@ -85,6 +81,12 @@ const SubSchedule = sequelize.define('SubSchedule', {
     allowNull: true,
     comment: 'Ledger sequence number where this top-up was confirmed',
   },
+  event_index: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 0,
+    comment: 'Event index within the transaction for idempotency',
+  },
 }, {
   tableName: 'sub_schedules',
   timestamps: true,
@@ -94,8 +96,30 @@ const SubSchedule = sequelize.define('SubSchedule', {
     {
       fields: ['vault_id'],
     },
-
+    {
+      fields: ['transaction_hash', 'event_index'],
+      unique: true,
+    },
   ],
 });
+
+SubSchedule.associate = function (models) {
+  SubSchedule.belongsTo(models.Vault, {
+    foreignKey: 'vault_id',
+    as: 'vault'
+  });
+
+  SubSchedule.hasMany(models.ClaimsHistory, {
+    foreignKey: 'vault_id',
+    sourceKey: 'vault_id',
+    as: 'claims'
+  });
+
+  SubSchedule.hasMany(models.VestingMilestone, {
+    foreignKey: 'vault_id',
+    sourceKey: 'vault_id',
+    as: 'milestones'
+  });
+};
 
 module.exports = SubSchedule;

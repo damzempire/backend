@@ -18,11 +18,11 @@ function initOrganizationWebhookModel(sequelize) {
         type: DataTypes.STRING(512),
         allowNull: false,
       },
-      createdAt: {
+      created_at: {
         type: DataTypes.DATE,
         defaultValue: DataTypes.NOW,
       },
-      updatedAt: {
+      updated_at: {
         type: DataTypes.DATE,
         defaultValue: DataTypes.NOW,
       },
@@ -30,6 +30,9 @@ function initOrganizationWebhookModel(sequelize) {
     {
       sequelize,
       tableName: 'organization_webhooks',
+      timestamps: true,
+      createdAt: 'created_at',
+      updatedAt: 'updated_at',
       indexes: [
         { fields: ['organization_id'] },
         { fields: ['webhook_url'] }
@@ -37,5 +40,17 @@ function initOrganizationWebhookModel(sequelize) {
     }
   );
 }
+
+OrganizationWebhook.associate = function associate(models) {
+  OrganizationWebhook.belongsTo(models.Organization, {
+    foreignKey: 'organization_id',
+    as: 'organization',
+  });
+
+  OrganizationWebhook.hasMany(models.ClaimWebhookDelivery, {
+    foreignKey: 'organization_webhook_id',
+    as: 'claimWebhookDeliveries',
+  });
+};
 
 module.exports = { OrganizationWebhook, initOrganizationWebhookModel };

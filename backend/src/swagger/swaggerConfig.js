@@ -1064,4 +1064,240 @@
  *               $ref: '#/components/schemas/ErrorResponse'
  */
 
-module.exports = {};
+/**
+ * @swagger
+ * /api/vaults:
+ *   post:
+ *     summary: Create a new vault
+ *     tags: [Vaults]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [address, token_address, owner_address]
+ *             properties:
+ *               address: { type: string }
+ *               token_address: { type: string }
+ *               owner_address: { type: string }
+ *               name: { type: string }
+ *               beneficiaries:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     address: { type: string }
+ *                     allocation: { type: string }
+ *     responses:
+ *       201:
+ *         description: Vault created
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/SuccessResponse' }
+ *       500:
+ *         description: Error
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *
+ * /api/vaults/{vaultAddress}/top-up:
+ *   post:
+ *     summary: Process a top-up
+ *     tags: [Vaults]
+ *     parameters:
+ *       - in: path
+ *         name: vaultAddress
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [amount, transaction_hash]
+ *             properties:
+ *               amount: { type: string }
+ *               transaction_hash: { type: string }
+ *               cliff_duration_seconds: { type: integer }
+ *               vesting_duration_seconds: { type: integer }
+ *     responses:
+ *       201:
+ *         description: Top-up processed
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/SuccessResponse' }
+ *       500:
+ *         description: Error
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *
+ * /api/vaults/{vaultAddress}/schedule:
+ *   get:
+ *     summary: Get vesting schedule
+ *     tags: [Vaults]
+ *     parameters:
+ *       - in: path
+ *         name: vaultAddress
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Schedule retrieved
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/SuccessResponse' }
+ *
+ * /api/vaults/{vaultAddress}/{beneficiaryAddress}/withdrawable:
+ *   get:
+ *     summary: Get withdrawable amount
+ *     tags: [Vaults]
+ *     parameters:
+ *       - in: path
+ *         name: vaultAddress
+ *         required: true
+ *         schema: { type: string }
+ *       - in: path
+ *         name: beneficiaryAddress
+ *         required: true
+ *         schema: { type: string }
+ *       - in: query
+ *         name: timestamp
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Amount retrieved
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/SuccessResponse' }
+ *
+ * /api/vaults/{vaultAddress}/{beneficiaryAddress}/withdraw:
+ *   post:
+ *     summary: Process withdrawal
+ *     tags: [Vaults]
+ *     parameters:
+ *       - in: path
+ *         name: vaultAddress
+ *         required: true
+ *         schema: { type: string }
+ *       - in: path
+ *         name: beneficiaryAddress
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [amount, transaction_hash]
+ *             properties:
+ *               amount: { type: string }
+ *               transaction_hash: { type: string }
+ *     responses:
+ *       200:
+ *         description: Withdrawal processed
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/SuccessResponse' }
+ *       500:
+ *         description: Error
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *
+ * /api/vaults/{vaultAddress}/summary:
+ *   get:
+ *     summary: Get vault summary
+ *     tags: [Vaults]
+ *     parameters:
+ *       - in: path
+ *         name: vaultAddress
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Summary retrieved
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/SuccessResponse' }
+ *
+ * /api/delegate/set:
+ *   post:
+ *     summary: Set delegate
+ *     tags: [Vaults]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [vaultId, ownerAddress, delegateAddress]
+ *             properties:
+ *               vaultId: { type: string }
+ *               ownerAddress: { type: string }
+ *               delegateAddress: { type: string }
+ *     responses:
+ *       200:
+ *         description: Delegate set
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/SuccessResponse' }
+ *       500:
+ *         description: Error
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *
+ * /api/delegate/claim:
+ *   post:
+ *     summary: Delegate claim
+ *     tags: [Vaults]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [delegateAddress, vaultAddress, releaseAmount]
+ *             properties:
+ *               delegateAddress: { type: string }
+ *               vaultAddress: { type: string }
+ *               releaseAmount: { type: string }
+ *     responses:
+ *       200:
+ *         description: Tokens claimed
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/SuccessResponse' }
+ *       500:
+ *         description: Error
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *
+ * /api/delegate/{vaultAddress}/info:
+ *   get:
+ *     summary: Get delegate info
+ *     tags: [Vaults]
+ *     parameters:
+ *       - in: path
+ *         name: vaultAddress
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Info retrieved
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/SuccessResponse' }
+ *       500:
+ *         description: Error
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ */
+
+module.exports = {};

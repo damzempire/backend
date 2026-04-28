@@ -1,8 +1,7 @@
 const { Token } = require('../models/token');
 const Vault = require('../models/vault');
 const axios = require('axios');
-
-const SOROBAN_RPC_URL = process.env.SOROBAN_RPC_URL || 'https://soroban-rpc.testnet.stellar.org';
+const { executeRpcWithRetry } = require('../../../rpc-retry');
 
 /**
  * Worker to detect new token addresses and fetch/store their metadata.
@@ -44,18 +43,21 @@ class TokenMetadataWorker {
 
   async fetchTokenMetadata(address) {
     // Example: Replace with actual Soroban RPC call
-    try {
-      const response = await axios.post(`${SOROBAN_RPC_URL}/getTokenMetadata`, { address: address });
-      const symbol = response.data.symbol;
-      const name = response.data.name;
-      const decimals = response.data.decimals;
-      if (symbol && name && typeof decimals === 'number') {
-        return { symbol: symbol, name: name, decimals: decimals };
-      }
-      return null;
-    } catch (err) {
-      return null;
+    const rpcUrl = process.env.STELLAR_RPC_URL;
+    if (!rpcUrl) {
+      throw new Error('STELLAR_RPC_URL environment variable is required');
     }
+
+    const rpcCall = () => axios.post(`${rpcUrl}/getTokenMetadata`, { address: address });
+    const response = await executeRpcWithRetry(rpcCall, `fetchTokenMetadata for ${address}`);
+
+    const symbol = response.data?.symbol;
+    const name = response.data?.name;
+    const decimals = response.data?.decimals;
+    if (symbol && name && typeof decimals === 'number') {
+      return { symbol, name, decimals };
+    }
+    return null;
   }
 }
 

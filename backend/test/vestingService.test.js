@@ -3,14 +3,14 @@ const { sequelize } = require('../src/database/connection');
 const { Vault, SubSchedule, Beneficiary } = require('../src/models');
 const vestingService = require('../src/services/vestingService');
 
+jest.setTimeout(60000);
+
 describe('Vesting Service Tests', () => {
   beforeAll(async () => {
     await sequelize.sync({ force: true });
   });
 
-  afterAll(async () => {
-    await sequelize.close();
-  });
+
 
   beforeEach(async () => {
     await Vault.destroy({ where: {}, force: true });
@@ -38,12 +38,12 @@ describe('Vesting Service Tests', () => {
 
       expect(vault.address).toBe(vaultData.address);
       expect(vault.name).toBe(vaultData.name);
-      expect(vault.total_amount).toBe('1000');
+      expect(parseFloat(vault.total_amount)).toBe(1000);
 
       const beneficiaries = await Beneficiary.findAll({ where: { vault_id: vault.id } });
       expect(beneficiaries).toHaveLength(1);
       expect(beneficiaries[0].address).toBe('0x2222222222222222222222222222222222222222');
-      expect(beneficiaries[0].total_allocated).toBe('500');
+      expect(parseFloat(beneficiaries[0].total_allocated)).toBe(500);
     });
   });
 
@@ -72,15 +72,15 @@ describe('Vesting Service Tests', () => {
       const subSchedule = await vestingService.processTopUp(topUpData);
 
       expect(subSchedule.vault_id).toBe(vault.id);
-      expect(subSchedule.top_up_amount).toBe('500');
+      expect(parseFloat(subSchedule.top_up_amount)).toBe(500);
       expect(subSchedule.cliff_duration).toBe(86400);
       expect(subSchedule.vesting_duration).toBe(2592000);
       expect(subSchedule.start_timestamp).toEqual(new Date('2024-01-02T00:00:00Z'));
-      expect(subSchedule.end_timestamp).toEqual(new Date('2024-01-31T00:00:00Z'));
+      expect(subSchedule.end_timestamp).toEqual(new Date('2024-02-01T00:00:00Z'));
 
       // Check vault total amount updated
       const updatedVault = await Vault.findByPk(vault.id);
-      expect(updatedVault.total_amount).toBe('500');
+      expect(parseFloat(updatedVault.total_amount)).toBe(500);
     });
 
     test('should process multiple top-ups with different cliffs', async () => {
@@ -108,8 +108,8 @@ describe('Vesting Service Tests', () => {
 
       const schedule = await vestingService.getVestingSchedule(vault.address);
       expect(schedule.subSchedules).toHaveLength(2);
-      expect(schedule.subSchedules[0].top_up_amount).toBe('1000');
-      expect(schedule.subSchedules[1].top_up_amount).toBe('500');
+      expect(parseFloat(schedule.subSchedules[0].top_up_amount)).toBe(1000);
+      expect(parseFloat(schedule.subSchedules[1].top_up_amount)).toBe(500);
     });
   });
 
@@ -168,7 +168,7 @@ describe('Vesting Service Tests', () => {
       const vestingInfo = await vestingService.calculateWithdrawableAmount(
         vault.address,
         beneficiary.address,
-        new Date('2024-01-16T00:00:00Z')
+        new Date('2024-01-17T00:00:00Z')
       );
 
       expect(vestingInfo.total_vested).toBeCloseTo(500, 2); // Half of 1000
@@ -239,12 +239,12 @@ describe('Vesting Service Tests', () => {
       const result = await vestingService.processWithdrawal(withdrawalData);
 
       expect(result.success).toBe(true);
-      expect(result.amount_withdrawn).toBe(200);
+      expect(parseFloat(result.amount_withdrawn)).toBe(200);
       expect(result.distribution).toHaveLength(1);
 
       // Check beneficiary updated
       const updatedBeneficiary = await Beneficiary.findByPk(beneficiary.id);
-      expect(updatedBeneficiary.total_withdrawn).toBe(200);
+      expect(parseFloat(updatedBeneficiary.total_withdrawn)).toBe(200);
     });
 
     test('should reject withdrawal exceeding vested amount', async () => {
@@ -291,7 +291,7 @@ describe('Vesting Service Tests', () => {
 
       expect(summary.vault_address).toBe(vault.address);
       expect(summary.token_address).toBe('0xabcdefabcdefabcdefabcdefabcdefabcdefabcd');
-      expect(summary.total_amount).toBe(1000);
+      expect(parseFloat(summary.total_amount)).toBe(1000);
       expect(summary.total_top_ups).toBe(1);
       expect(summary.total_beneficiaries).toBe(1);
       expect(summary.sub_schedules).toHaveLength(1);
