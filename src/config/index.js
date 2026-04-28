@@ -32,6 +32,17 @@ const config = {
     level: process.env.LOG_LEVEL || 'info',
     file: process.env.LOG_FILE || 'logs/indexer.log',
   },
+  
+  shadowIndexing: {
+    enabled: process.env.SHADOW_INDEXING_ENABLED === 'true',
+    indexingInterval: parseInt(process.env.SHADOW_INDEXING_INTERVAL) || 3000, // 3 seconds
+    validationInterval: parseInt(process.env.SHADOW_VALIDATION_INTERVAL) || 30, // 30 seconds
+    criticalInconsistencyCount: parseInt(process.env.CRITICAL_INCONSISTENCY_COUNT) || 5,
+    warningInconsistencyCount: parseInt(process.env.WARNING_INCONSISTENCY_COUNT) || 2,
+    failoverThreshold: parseInt(process.env.FAILOVER_THRESHOLD) || 10,
+    autoFailover: process.env.AUTO_FAILOVER === 'true',
+    syncOnStartup: process.env.SYNC_ON_STARTUP !== 'false', // Default true
+  },
 };
 
 module.exports = config;

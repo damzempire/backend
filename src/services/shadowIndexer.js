@@ -3,19 +3,22 @@ const logger = require('../utils/logger');
 const config = require('../config');
 const EventEmitter = require('events');
 
-class SorobanIndexer extends EventEmitter {
-  constructor(name = 'main') {
+class ShadowIndexer extends EventEmitter {
+  constructor(name = 'shadow') {
     super();
     this.name = name;
     this.server = new Server(config.soroban.rpcUrl);
     this.horizon = new Horizon.Server(config.soroban.horizonUrl);
     this.lastProcessedLedger = 0;
     this.currentIndex = 0;
-    this.processedLedgers = new Map(); // Store ledger data for consistency checks
+    this.indexingInterval = null;
+    this.isIndexing = false;
     this.processedTransactions = new Map(); // Store transaction hashes for validation
+    this.processedLedgers = new Map(); // Store ledger data for consistency checks
     this.stats = {
       totalLedgersProcessed: 0,
       totalTransactionsProcessed: 0,
+      inconsistenciesDetected: 0,
       averageProcessingTime: 0,
       lastSyncTime: null
     };
@@ -26,7 +29,7 @@ class SorobanIndexer extends EventEmitter {
       const latestLedger = await this.horizon.ledgers().order('desc').limit(1).call();
       return latestLedger.records[0].sequence;
     } catch (error) {
-      logger.error('Error fetching current ledger:', error);
+      logger.error(`[${this.name}] Error fetching current ledger:`, error);
       throw error;
     }
   }
@@ -51,15 +54,6 @@ class SorobanIndexer extends EventEmitter {
       return transactions.records;
     } catch (error) {
       logger.error(`[${this.name}] Error fetching transactions for ledger ${ledgerSequence}:`, error);
-      throw error;
-    }
-  }
-
-  async getIndexedLedger() {
-    try {
-      return this.currentIndex;
-    } catch (error) {
-      logger.error(`[${this.name}] Error fetching indexed ledger:`, error);
       throw error;
     }
   }
@@ -120,45 +114,15 @@ class SorobanIndexer extends EventEmitter {
     }
   }
 
-  async updateIndexedLedger(ledgerNumber) {
-    try {
-      await this.processLedger(ledgerNumber);
-      this.currentIndex = ledgerNumber;
-      logger.info(`[${this.name}] Updated indexed ledger to: ${ledgerNumber}`);
-    } catch (error) {
-      logger.error(`[${this.name}] Error updating indexed ledger:`, error);
-      throw error;
-    }
-  }
-
-  async calculateLag() {
-    try {
-      const currentLedger = await this.getCurrentLedger();
-      const indexedLedger = await this.getIndexedLedger();
-      
-      const lag = currentLedger - indexedLedger;
-      logger.debug(`Current ledger: ${currentLedger}, Indexed ledger: ${indexedLedger}, Lag: ${lag}`);
-      
-      return {
-        currentLedger,
-        indexedLedger,
-        lag,
-        timestamp: new Date().toISOString()
-      };
-    } catch (error) {
-      logger.error('Error calculating lag:', error);
-      throw error;
-    }
-  }
-
   async startIndexing(startLedger = null) {
-    if (this.indexingInterval) {
-      logger.warn(`[${this.name}] Indexer is already running`);
-      return this.indexingInterval;
+    if (this.isIndexing) {
+      logger.warn(`[${this.name}] Shadow indexer is already running`);
+      return;
     }
 
     try {
-      logger.info(`[${this.name}] Starting Soroban indexer...`);
+      this.isIndexing = true;
+      logger.info(`[${this.name}] Starting shadow indexer...`);
 
       // Get current ledger if not provided
       if (!startLedger) {
@@ -182,29 +146,124 @@ class SorobanIndexer extends EventEmitter {
           logger.error(`[${this.name}] Error in indexing loop:`, error);
           this.emit('error', error);
         }
-      }, 5000); // Index every 5 seconds
+      }, config.shadowIndexing?.indexingInterval || 3000); // Default 3 seconds
 
-      logger.info(`[${this.name}] Soroban indexer started successfully`);
+      logger.info(`[${this.name}] Shadow indexer started successfully`);
       this.emit('started', { name: this.name, startLedger });
       
-      return this.indexingInterval;
-      
     } catch (error) {
-      logger.error(`[${this.name}] Failed to start indexer:`, error);
+      this.isIndexing = false;
+      logger.error(`[${this.name}] Failed to start shadow indexer:`, error);
       throw error;
     }
   }
 
   stopIndexing() {
-    if (!this.indexingInterval) {
-      logger.warn(`[${this.name}] Indexer is not running`);
+    if (!this.isIndexing) {
+      logger.warn(`[${this.name}] Shadow indexer is not running`);
       return;
     }
 
-    clearInterval(this.indexingInterval);
-    this.indexingInterval = null;
-    logger.info(`[${this.name}] Soroban indexer stopped`);
+    if (this.indexingInterval) {
+      clearInterval(this.indexingInterval);
+      this.indexingInterval = null;
+    }
+    
+    this.isIndexing = false;
+    logger.info(`[${this.name}] Shadow indexer stopped`);
     this.emit('stopped', { name: this.name });
+  }
+
+  async validateAgainst(mainIndexerData) {
+    const inconsistencies = [];
+    
+    try {
+      // Compare ledger data
+      for (const [ledgerSeq, shadowData] of this.processedLedgers.entries()) {
+        const mainData = mainIndexerData.get(ledgerSeq);
+        
+        if (!mainData) {
+          inconsistencies.push({
+            type: 'MISSING_LEDGER',
+            ledger: ledgerSeq,
+            shadowData,
+            message: `Ledger ${ledgerSeq} exists in shadow indexer but not in main indexer`
+          });
+          continue;
+        }
+
+        // Validate ledger hash
+        if (shadowData.hash !== mainData.hash) {
+          inconsistencies.push({
+            type: 'LEDGER_HASH_MISMATCH',
+            ledger: ledgerSeq,
+            shadowHash: shadowData.hash,
+            mainHash: mainData.hash,
+            message: `Ledger hash mismatch for ledger ${ledgerSeq}`
+          });
+        }
+
+        // Validate transaction count
+        if (shadowData.transaction_count !== mainData.transaction_count) {
+          inconsistencies.push({
+            type: 'TRANSACTION_COUNT_MISMATCH',
+            ledger: ledgerSeq,
+            shadowCount: shadowData.transaction_count,
+            mainCount: mainData.transaction_count,
+            message: `Transaction count mismatch for ledger ${ledgerSeq}`
+          });
+        }
+
+        // Validate transaction hashes
+        const shadowTxHashes = new Set(shadowData.transaction_hashes);
+        const mainTxHashes = new Set(mainData.transaction_hashes);
+        
+        const missingInMain = [...shadowTxHashes].filter(hash => !mainTxHashes.has(hash));
+        const missingInShadow = [...mainTxHashes].filter(hash => !shadowTxHashes.has(hash));
+        
+        if (missingInMain.length > 0) {
+          inconsistencies.push({
+            type: 'MISSING_TRANSACTIONS_IN_MAIN',
+            ledger: ledgerSeq,
+            missingTransactions: missingInMain,
+            message: `${missingInMain.length} transactions missing in main indexer for ledger ${ledgerSeq}`
+          });
+        }
+        
+        if (missingInShadow.length > 0) {
+          inconsistencies.push({
+            type: 'MISSING_TRANSACTIONS_IN_SHADOW',
+            ledger: ledgerSeq,
+            missingTransactions: missingInShadow,
+            message: `${missingInShadow.length} transactions missing in shadow indexer for ledger ${ledgerSeq}`
+          });
+        }
+      }
+
+      // Check for ledgers that exist in main but not in shadow
+      for (const [ledgerSeq, mainData] of mainIndexerData.entries()) {
+        if (!this.processedLedgers.has(ledgerSeq)) {
+          inconsistencies.push({
+            type: 'MISSING_LEDGER_IN_SHADOW',
+            ledger: ledgerSeq,
+            mainData,
+            message: `Ledger ${ledgerSeq} exists in main indexer but not in shadow indexer`
+          });
+        }
+      }
+
+      if (inconsistencies.length > 0) {
+        this.stats.inconsistenciesDetected += inconsistencies.length;
+        logger.warn(`[${this.name}] Detected ${inconsistencies.length} inconsistencies`);
+        this.emit('inconsistency', { inconsistencies, stats: this.stats });
+      }
+
+      return inconsistencies;
+      
+    } catch (error) {
+      logger.error(`[${this.name}] Error during validation:`, error);
+      throw error;
+    }
   }
 
   getProcessedLedgers() {
@@ -215,10 +274,10 @@ class SorobanIndexer extends EventEmitter {
     return {
       ...this.stats,
       name: this.name,
+      isIndexing: this.isIndexing,
       currentIndex: this.currentIndex,
       processedLedgersCount: this.processedLedgers.size,
-      processedTransactionsCount: this.processedTransactions.size,
-      isIndexing: !!this.indexingInterval
+      processedTransactionsCount: this.processedTransactions.size
     };
   }
 
@@ -229,11 +288,12 @@ class SorobanIndexer extends EventEmitter {
     this.stats = {
       totalLedgersProcessed: 0,
       totalTransactionsProcessed: 0,
+      inconsistenciesDetected: 0,
       averageProcessingTime: 0,
       lastSyncTime: null
     };
-    logger.info(`[${this.name}] Indexer reset completed`);
+    logger.info(`[${this.name}] Shadow indexer reset completed`);
   }
 }
 
-module.exports = SorobanIndexer;
+module.exports = ShadowIndexer;
